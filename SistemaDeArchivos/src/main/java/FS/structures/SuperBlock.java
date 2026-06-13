@@ -40,7 +40,19 @@ public class SuperBlock{
         this.dataZoneStart = DataZoneStart;
         this.rootReference = RootReference;
     }    
+ 
+    public void setTotalDiskSize(long disk){
+        totalDiskSize = disk;
+    }
     
+    public void setBlockSize(long block){
+        blockSize = block;
+    }    
+    
+    public void setTotalBlocks(long block){
+        totalBlocks = block;
+    }    
+        
     public void setBitmapBlocksStart(long direc){
         bitmapBlocksStart = direc;
     }

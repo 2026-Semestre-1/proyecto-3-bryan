@@ -34,22 +34,47 @@ public class FileSystem {
         mbr.toBytes();
         long blockSize = 512; // Lo pongo así por si lo cambio
         SuperBlock superBlock = new SuperBlock(sizeBytes, blockSize);
-        long sizeSuperBlock = 80;
+
         long sizeMBR = 200;
-        long  sizeBitmapOpenFiles = 10; // Serian 80 archivos porque 1 byte son 8 bits
-        long sizeUsuarios = 900;
-        long sizeGrupos = 550;
-        long sizeFCB = 5900;
-        long total = sizeSuperBlock + sizeMBR + sizeBitmapOpenFiles + sizeUsuarios + sizeGrupos + sizeFCB;
-        long remainingSpace = sizeBytes / total;
+        long sizeSuperBlock = 80;
+        long sizeBitmapOpenFiles = 10; // 80 archivos abiertos
+        long sizeUsuarios = 900;        // 90 bytes × 10 usuarios
+        long sizeGrupos = 275;          // 55 bytes × 5 grupos
+        long sizeFCB = 5900;            // 59 bytes × 100 FCBs
         
         
-        superBlock.toBytes();
+
+        long calculatedData = sizeMBR + sizeSuperBlock + sizeBitmapOpenFiles + sizeUsuarios + sizeGrupos + sizeFCB;
+        long remainingSpace = sizeBytes - calculatedData;
+
+        long estimatedBlocks = remainingSpace / blockSize;
+        long sizeBitmapBlocks = (long) Math.ceil(estimatedBlocks / 8.0);
+
+        long dataSpace = remainingSpace - sizeBitmapBlocks;
+        long totalBlocks = dataSpace / blockSize;        
+        
+        
+        long offsetMBR = 0;
+        long offsetSuperBlock = offsetMBR + sizeMBR;
+        long offsetBitmapBloques = offsetSuperBlock + sizeSuperBlock;
+        long offsetBitmapOpenFiles = offsetBitmapBloques + sizeBitmapBlocks;
+        long offsetUsuarios = offsetBitmapOpenFiles + sizeBitmapOpenFiles;
+        long offsetGrupos = offsetUsuarios + sizeUsuarios;
+        long offsetFCB = offsetGrupos + sizeGrupos;
+        long offsetDataZone = offsetFCB + sizeFCB;
+        
+        superBlock.setTotalBlocks(totalBlocks);
+        superBlock.setBitmapBlocksStart(offsetBitmapBloques);
+        superBlock.setBitmapOpenFilesStart(offsetBitmapOpenFiles);
+        superBlock.setUsersStart(offsetUsuarios);
+        superBlock.setGroupsStart(offsetGrupos);
+        superBlock.setFcbStart(offsetFCB);
+        superBlock.setDataZoneStart(offsetDataZone);
+        
+        
         Disk disk = new Disk(fileName);
         disk.write(0, mbr.toBytes());
-        
-        
-        disk.write(blockSize, superBlock.toBytes());
+        disk.write(offsetSuperBlock, superBlock.toBytes());
         
     }
 }
