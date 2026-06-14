@@ -11,17 +11,17 @@ import java.nio.ByteBuffer;
  * @author bryan
  */
 public class FCB {
-    String name;            // 20 bytes
+    String name;            
     byte type;               // 1 byte (0=archivo, 1=directorio)
-    int ownerId;             // 4 bytes
-    int groupId;             // 4 bytes
-    byte permissions;        // 1 byte
-    int sizeUsed;             // 4 bytes
-    int startBlock;          // 4 bytes
-    int blockCount;          // 4 bytes
-    long creationDate;       // 8 bytes
-    long modificationDate;   // 8 bytes
-    byte isOpen;             // 1 byte  
+    int ownerId;             
+    int groupId;           
+    byte permissions;     
+    int sizeUsed;            
+    int startBlock;         
+    int blockCount;          
+    long creationDate;      
+    long modificationDate;   
+    byte isOpen;             
     
     
     

@@ -41,6 +41,17 @@ public class SuperBlock{
         this.rootReference = RootReference;
     }    
  
+    public long getTotalDiskSize() { return totalDiskSize; }
+    public long getBlockSize() { return blockSize; }
+    public long getTotalBlocks() { return totalBlocks; }
+    public long getBitmapBlocksStart() { return bitmapBlocksStart; }
+    public long getBitmapOpenFilesStart() { return bitmapOpenFilesStart; }
+    public long getUsersStart() { return usersStart; }
+    public long getGroupsStart() { return groupsStart; }
+    public long getFcbStart() { return fcbStart; }
+    public long getDataZoneStart() { return dataZoneStart; }
+    public long getRootReference() { return rootReference; }
+
     public void setTotalDiskSize(long disk){
         totalDiskSize = disk;
     }

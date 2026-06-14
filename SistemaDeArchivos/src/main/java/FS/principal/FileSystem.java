@@ -14,10 +14,26 @@ public class FileSystem {
     public Disk disk;
     public Mbr mbr;
     public SuperBlock superBlock;
+    public Bitmap bitmapBlocks;
+    public Bitmap bitmapOpenFiles;
     
     public FileSystem(){
         
     }
+    
+    
+    
+    public User getUser(int index){
+        long offset = superBlock.getUsersStart() + (index * 90);
+        byte[] data = disk.read(offset, 90);
+        return User.fromBytes(data);
+    }
+
+    public FCB getFCB(int index){
+        long offset = superBlock.getFcbStart() + (index * 59);
+        byte[] data = disk.read(offset, 59);
+        return FCB.fromBytes(data);
+    }    
     
     public void createDisk(long file, String type ,String fileName, String rootPassword){
         long sizeBytes = 0;
@@ -157,9 +173,63 @@ public class FileSystem {
         DirectoryEntry entryRoot = new DirectoryEntry("root",2);
         disk.write(offsetDataZone + (0 * blockSize), entryUser.toBytes());
         disk.write(offsetDataZone + (1 * blockSize), entryRoot.toBytes());
+        this.disk = disk;
+        this.superBlock = superBlock;
+        this.bitmapBlocks = bitmapBlocks;
+        this.bitmapOpenFiles = bitmapOpenFiles;        
         
 
     }
     
+    public int freeSlotUsers(){
+        for (int i = 0; i < 10; i++ ){
+            long offset = superBlock.getUsersStart() + (i * 90);
+            byte[] data = disk.read(offset, 90);
+            if(data[0] == 0){
+                return i;
+            }
+        }
+        return -1;
+        
+    }
+    
+    public int freeslotGroups(){
+        for (int j = 0; j < 5; j++ ){
+            long offset = superBlock.getGroupsStart() + (j * 55);
+            byte[] data = disk.read(offset, 55);
+            if(data[0] == 0){
+                return j;
+            }
+        }
+        return -1;
+        
+    }
+    
+    public int freeslotFCB(){
+        for (int x = 0; x < 100; x++ ){
+            long offset = superBlock.getFcbStart()+ (x * 59);
+            byte[] data = disk.read(offset, 59);
+            if(data[0] == 0){
+                return x;
+            }
+        }
+        return -1;
+        
+    }  
+    
+    public void writeUser(User user, int index){
+        long offset = superBlock.getUsersStart() + (index * 90);
+        disk.write(offset, user.toBytes());
+    }  
+    
+    public void writeGroup(Group group, int index){
+        long offset = superBlock.getGroupsStart() + (index * 55);
+        disk.write(offset, group.toBytes());
+    }      
+    
+    public void writeFCB(FCB fcb , int index){
+        long offset = superBlock.getFcbStart() + (index * 59);
+        disk.write(offset, fcb.toBytes());
+    }       
     
 }

@@ -21,6 +21,24 @@ public class Terminal {
         this.fs = FS;
     }
     
+    public Terminal(FileSystem FS){
+        this.fs = FS;
+        this.currentUser = fs.getUser(0);
+        this.currentDirectory = fs.getFCB(2);
+    }    
+    
+   
+    
+    
+    public User getCurrentUser() { return currentUser; }
+    public void setCurrentUser(User currentUser) { this.currentUser = currentUser; }
+
+    public FCB getCurrentDirectory() { return currentDirectory; }
+    public void setCurrentDirectory(FCB currentDirectory) { this.currentDirectory = currentDirectory; }
+
+    public FileSystem getFs() { return fs; }
+    public void setFs(FileSystem fs) { this.fs = fs; }
+
     public void start(){
         Scanner scanner = new Scanner(System.in);
         while(true){
@@ -31,15 +49,81 @@ public class Terminal {
             if(line.isEmpty()) continue;
             String[] parts = line.split(" ");
             String command = parts[0].toLowerCase();
+            int result = executeCommand(command, parts);
+            if (result == 2){
+                break;
+            }
             
-            executeCommand(command, parts);
+            
             
             
         }
     }
     
-    public void executeCommand(String command, String[] parts){
+    public int executeCommand(String command, String[] parts){
+        Scanner scan = new Scanner(System.in);
+        switch(command.toLowerCase()){
+            case "exit":
+                System.out.println("Hola");
+                
+                return 2;
+                
+            case "useradd":
+                System.out.println("hola1");
+                String userName = parts[1].toLowerCase();
+                System.out.println("Nombre de usuario: " + userName);
+                System.out.println("Ingrese su nombre completo por favor: " );
+                String fullName = scan.nextLine().trim();
+                System.out.println("Cree una contrasena: " );
+                String password = scan.nextLine().trim();    
+                System.out.println("Esta seguro que desea crear la cuenta ingrese (y)/(n): " );
+                String confirmation = scan.nextLine().trim();
+                if (confirmation.toLowerCase().equals("y")){
+                    int slot = fs.freeSlotUsers();
+                    int slotG = fs.freeslotGroups();
+                    int slotFC = fs.freeslotFCB();
+                    if (slot == -1){
+                        System.out.println("Error: No hay espacio para crear más usuarios");
+                        return 0;
+                    }
+                    if (slotG == -1){
+                        System.out.println("Error: No hay espacio para crear más grupos");
+                        return 0;                        
+                    }
+                    if (slotFC == -1){
+                        System.out.println("Error: No hay espacio para crear más FCB'S");
+                        return 0;                        
+                    }                    
+                    Group gr = new Group(userName, new int[]{slot});
+                    int newBlock = fs.bitmapBlocks.findFreeBit();
+                    fs.bitmapBlocks.markBusy(newBlock);
+                    FCB fc = new FCB(userName, (byte)1, slot, slotG, FCB.grantPerm(7,0), 0, 
+                        newBlock, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0);
+                    User us = new User(userName, password, fullName, slotG, slotFC);
+                    fs.writeGroup(gr, slotG);
+                    fs.writeFCB(fc, slotFC);
+                    fs.writeUser(us, slot);
+                    fs.disk.write(fs.superBlock.getBitmapBlocksStart(), fs.bitmapBlocks.toBytes());                   
+                    FCB userDir = fs.getFCB(1);
+                    long blockOffset = fs.superBlock.getDataZoneStart() + (userDir.getStartBlock() * 512);
+                    long entryOffset = blockOffset + (userDir.getSizeUsed() * 24);
+                    
+                    DirectoryEntry newEntryDir = new DirectoryEntry(userName, slotFC);
+                    fs.disk.write(entryOffset, newEntryDir.toBytes());
+                    
+                    userDir.setSizeUsed(userDir.getSizeUsed() + 1);
+                    fs.writeFCB(userDir, 1);
+                    
+
+                    
+                    
+                }
+                
+            
+        }
         
+        
+        return 0;
     }
     
 }

@@ -19,7 +19,7 @@ public class Mbr {
         byte[] fileNameBytes = fsFileName.getBytes();
 
         ByteBuffer buffer = ByteBuffer.allocate(
-                fileNameBytes.length + Long.BYTES + Long.BYTES
+                Integer.BYTES + fileNameBytes.length + Long.BYTES + Long.BYTES
         );
 
 
