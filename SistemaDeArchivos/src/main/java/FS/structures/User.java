@@ -60,15 +60,16 @@ public class User {
         System.arraycopy(name, 0,nameBytes, 0, Math.min(name.length , 20));
         buffer.put(nameBytes);
         
+        byte[] pass = password.getBytes();
+        byte[] passBytes = new byte[32];
+        System.arraycopy(pass, 0, passBytes, 0, Math.min(pass.length, 32));
+        buffer.put(passBytes);
+        
         byte[] full = fullName.getBytes();
         byte[] fullBytes = new byte[30];
         System.arraycopy(full, 0, fullBytes, 0, Math.min(full.length, 30));
         buffer.put(fullBytes);
         
-        byte[] pass = password.getBytes();
-        byte[] passBytes = new byte[32];
-        System.arraycopy(pass, 0, passBytes, 0, Math.min(pass.length, 32));
-        buffer.put(passBytes);
         
         buffer.putInt(groupId);
         buffer.putInt(homeDirId);
@@ -85,14 +86,16 @@ public class User {
         buffer.get(nameBytes);
         String userName = new String(nameBytes).trim();
 
+         byte[] passBytes = new byte[32];
+        buffer.get(passBytes);
+        String password = new String(passBytes).trim();
+        
         
         byte[] fullBytes = new byte[30];
         buffer.get(fullBytes);
         String fullName = new String(fullBytes).trim();
         
-        byte[] passBytes = new byte[32];
-        buffer.get(passBytes);
-        String password = new String(passBytes).trim();
+
 
         int groupId = buffer.getInt();
         int homeDirId = buffer.getInt();      

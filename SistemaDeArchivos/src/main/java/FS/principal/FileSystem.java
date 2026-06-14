@@ -230,6 +230,25 @@ public class FileSystem {
     public void writeFCB(FCB fcb , int index){
         long offset = superBlock.getFcbStart() + (index * 59);
         disk.write(offset, fcb.toBytes());
-    }       
+    }    
+    
+    public int findUser(String userName){
+        for (int i = 0; i < 10; i++ ){
+            if (getUser(i).getUserName().equals(userName)) {
+                return i;
+            }
+        }
+        return -1;
+        
+    }    
+    
+    public boolean confirmPasswordUser(String password, int index){
+        User u = getUser(index);
+        System.out.println("índice: " + index);
+        System.out.println("a " + u.getPassword());
+        System.out.println("b " + password);
+        return u.getPassword().equals(password);
+    }
+    
     
 }

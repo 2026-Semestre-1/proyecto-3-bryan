@@ -121,12 +121,73 @@ public class Terminal {
                     
                 }
                 
+            case "su":
+                if(parts.length == 1){
+                    // Por si pide un usuario en el que ya esta logueado
+                    if(this.currentUser.getUserName().equals("root")){
+                        System.out.println("Ya se encuentra utilizando el usuario root");
+                        break;
+                    }
+                    // CASO SU SOLO
+                    System.out.println("Por favor ingrese la contraseña de root: ");
+                    int ff = 0;
+                    while(ff < 3){
+                        String confirmPassword = scan.nextLine().trim();
+                        if(fs.confirmPasswordUser(confirmPassword, 0)){
+                            this.currentUser = fs.getUser(0);
+                            this.currentDirectory = fs.getFCB(2); 
+                            System.out.println("Bienvenido root");
+                            break;
+                        } else {
+                            System.out.println("Contraseña incorrecta");
+                            ff++;
+                        }
+                    }
+                    if(ff == 3){
+                        System.out.println("Demasiados intentos fallidos");
+                    }
+                } else { // Por si quiere usar el mismo usuario
+                    String user = parts[1];
+                    if(this.currentUser.getUserName().equals(user)){
+                        System.out.println("Ya se encuentra utilizando ese usuario");
+                        break;
+                    }
+                    int res = fs.findUser(user);  // CASO CON SU y nombre a la par
+                    if(res != -1){
+                        System.out.println("Por favor ingrese la contraseña: ");
+                        int ff = 0;
+                        while(ff < 3){
+                            String confirmPassword = scan.nextLine().trim();
+                            if(fs.confirmPasswordUser(confirmPassword, res)){
+                                this.currentUser = fs.getUser(res);
+                                this.currentDirectory = fs.getFCB(this.currentUser.getHomeDirId());
+                                System.out.println("Bienvenido " + user);
+                                break;
+                            } else {
+                                System.out.println("Contraseña incorrecta");
+                                ff++;
+                            }
+                        }
+                        if(ff == 3){
+                            System.out.println("Demasiados intentos fallidos");
+                        }
+                    } else {
+                        System.out.println("El usuario no fue encontrado");
+                    }
+                }
+                break;
+               
+                
+                
+                
                 
             case "whoami":
                 
                 System.out.println("Username: " + this.currentUser.getUserName());
                 System.out.println("Full name: " + this.currentUser.getFullName());
                 break;
+                
+            
                 
             
         }
