@@ -100,6 +100,8 @@ public class Terminal {
                     FCB fc = new FCB(userName, (byte)1, slot, slotG, FCB.grantPerm(7,0), 0, 
                         newBlock, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0);
                     User us = new User(userName, password, fullName, slotG, slotFC);
+                    
+                    // Guardo ahora en disco
                     fs.writeGroup(gr, slotG);
                     fs.writeFCB(fc, slotFC);
                     fs.writeUser(us, slot);
@@ -113,11 +115,18 @@ public class Terminal {
                     
                     userDir.setSizeUsed(userDir.getSizeUsed() + 1);
                     fs.writeFCB(userDir, 1);
-                    
+                    return 0;
 
                     
                     
                 }
+                
+                
+            case "whoami":
+                
+                System.out.println("Username: " + this.currentUser.getUserName());
+                System.out.println("Full name: " + this.currentUser.getFullName());
+                break;
                 
             
         }
