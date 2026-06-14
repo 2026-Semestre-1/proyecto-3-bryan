@@ -57,6 +57,18 @@ public class FCB {
 
     public byte getIsOpen() { return isOpen; }
     public void setIsOpen(byte isOpen) { this.isOpen = isOpen; }    
+ 
+    public static byte grantPerm(int owner, int group) {
+        return (byte) ((owner << 3) | group);
+    }
+
+    public static int getOwnerPerm(byte permisos) {
+        return (permisos >> 3) & 0b111;
+    }
+
+    public static int getGroupPerm(byte permisos) {
+        return permisos & 0b111;
+    }    
     
     
     public FCB(String Name, byte Type, int OwnerId, int GroupId, byte Permissions, int SizeUsed,
