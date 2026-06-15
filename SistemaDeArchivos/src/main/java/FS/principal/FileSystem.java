@@ -28,6 +28,12 @@ public class FileSystem {
         byte[] data = disk.read(offset, 90);
         return User.fromBytes(data);
     }
+    
+    public Group getGroup(int index){
+        long offset = superBlock.getUsersStart() + (index * 55);
+        byte[] data = disk.read(offset, 55);
+        return Group.fromBytes(data);
+    }    
 
     public FCB getFCB(int index){
         long offset = superBlock.getFcbStart() + (index * 59);
@@ -241,6 +247,16 @@ public class FileSystem {
         return -1;
         
     }    
+ 
+    public int findGroup(String groupName){
+        for (int i = 0; i < 5; i++ ){
+            if (getGroup(i).getGroupName().equals(groupName)) {
+                return i;
+            }
+        }
+        return -1;
+        
+    }     
     
     public boolean confirmPasswordUser(String password, int index){
         User u = getUser(index);

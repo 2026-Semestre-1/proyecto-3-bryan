@@ -5,6 +5,7 @@
 package FS.terminal;
 import FS.structures.*;
 import FS.principal.*;
+import java.util.Arrays;
 import java.util.Scanner;
 /**
  *
@@ -119,6 +120,100 @@ public class Terminal {
 
                     
                     
+                }
+                
+            case "groupadd":
+                // FALTA VER LO DE QUE ES UN USUARIO PRIVILEGIADO PARA VER SI HAY OTROS APARTE DE ROOT
+                
+                System.out.println("hola5");
+                if (parts.length < 2){
+                    System.out.println("Debe ingresar el nombre del grupo");
+                    return 0;
+                }
+                String groupName =  parts[1];
+                if (fs.findGroup(groupName) == -1){            
+                    int slotGroupAdd = fs.freeslotGroups();
+                    if (slotGroupAdd != -1){
+                        Group grup = new Group(groupName, new int[10]);
+                        Arrays.fill(grup.getMembers(), -1);
+                        fs.writeGroup(grup, slotGroupAdd);  
+                        System.out.println("El grupo fue creado con exito");
+                        return 0;
+                    } else {
+                        System.out.println("No hay espacio para más grupos");
+                    }
+                    
+                   
+                } else {
+                    System.out.println("El grupo ya existe");
+                    return 0;
+                }
+
+                
+
+                
+            case "passwd":
+                System.out.println("hola4");
+                if (parts.length == 1){
+                    System.out.println("Vamos a cambiar nuestro password");
+                    int xx = 0;
+                    while(xx < 3){ 
+                        System.out.println("Escriba su password");
+                        String p1 = scan.nextLine().trim();
+                        if (this.currentUser.getPassword().equals(p1)){
+                            int xx2 = 0;
+                            while(xx2 < 3) {
+                                System.out.println("Ingrese la nueva contraseña");
+                                String p2 = scan.nextLine().trim();
+                                System.out.println("Confirme la nueva contraseña por favor");                           
+                                String p3 = scan.nextLine().trim();
+                                if (p2.equals(p3)){
+                                    this.currentUser.setPassword(p3);
+                                    int userIndex = fs.findUser(this.currentUser.getUserName());
+                                    fs.writeUser(this.currentUser, userIndex);
+                                    System.out.println("La contrasena fue cambiada con exito");
+                                    return 0;
+                                    
+                                }
+                                xx2++;
+                            }
+                        }
+                        xx++;
+                    }
+                    
+                } else {
+                    if(!this.currentUser.getUserName().equals("root")){
+                        System.out.println("Solo root puede cambiar la contraseña de otros usuarios");
+                        return 0;
+                    }
+                    // Caso en el que es passwd con username
+                    String userToChange = parts[1];
+                    System.out.println("Vamos a cambiar el password");
+                    int xx3 = 0;
+                    while(xx3 < 3){
+                        System.out.println("Ingrese la contrasena actual del usuario");
+                        String p3 = scan.nextLine().trim();
+                        int userIndex2 = fs.findUser(this.currentUser.getUserName());
+                        if(fs.confirmPasswordUser(p3, userIndex2)) {
+                            int xx4 = 0;
+                                while(xx4 < 3){
+                                System.out.println("Ahora ingrese la nueva contrasena");
+                                String p4 = scan.nextLine().trim();
+                                System.out.println("Vuelva a ingresar la nueva contrasena");
+                                String p5 = scan.nextLine().trim();                                
+                                if(p4.equals(p5)){
+                                    System.out.println("Se ha cambiado la contrasena");
+                                    int userIndex3 = fs.findUser(userToChange);
+                                    User u2 = fs.getUser(userIndex3);
+                                    u2.setPassword(p4);
+                                    fs.writeUser(u2, userIndex3);
+                                    return 0;
+                                }
+                                xx4++;
+                            }
+                        }
+                        xx3++;
+                    }
                 }
                 
             case "su":
