@@ -22,6 +22,7 @@ public class FCB {
     long creationDate;      
     long modificationDate;   
     byte isOpen;             
+    int parentId;            
     
     
     
@@ -57,7 +58,10 @@ public class FCB {
 
     public byte getIsOpen() { return isOpen; }
     public void setIsOpen(byte isOpen) { this.isOpen = isOpen; }    
- 
+
+    public int getParentId() { return parentId; }
+    public void setParentId(int parentId) { this.parentId = parentId; }
+  
     public static byte grantPerm(int owner, int group) {
         return (byte) ((owner << 3) | group);
     }
@@ -72,7 +76,7 @@ public class FCB {
     
     
     public FCB(String Name, byte Type, int OwnerId, int GroupId, byte Permissions, int SizeUsed,
-            int StartBlock, int BlockCount, long CreationDate, long ModificationDate, byte IsOpen){
+            int StartBlock, int BlockCount, long CreationDate, long ModificationDate, byte IsOpen, int ParentId){
         this.name = Name;
         this.type = Type;
         this.ownerId = OwnerId;
@@ -84,18 +88,18 @@ public class FCB {
         this.creationDate = CreationDate;
         this.modificationDate = ModificationDate;
         this.isOpen = IsOpen;
+        this.parentId = ParentId;
     }
     
     public byte[] toBytes(){
-        ByteBuffer buffer = ByteBuffer.allocate(20+ 1 + 4 + 4 + 1 + 4 + 4+ 4 + 8 + 8 + 1);
+        ByteBuffer buffer = ByteBuffer.allocate(20 + 1 + 4 + 4 + 1 + 4 + 4 + 4 + 8 + 8 + 1 + 4);
         
         byte[] nameData = name.getBytes();
         byte[] nameBytes = new byte[20];
-        System.arraycopy(nameData, 0,nameBytes, 0, Math.min(nameData.length , 20));
+        System.arraycopy(nameData, 0, nameBytes, 0, Math.min(nameData.length, 20));
         buffer.put(nameBytes);
         
         buffer.put(type);
-        
         buffer.putInt(ownerId);
         buffer.putInt(groupId);
         buffer.put(permissions);
@@ -105,6 +109,7 @@ public class FCB {
         buffer.putLong(creationDate);
         buffer.putLong(modificationDate);
         buffer.put(isOpen);
+        buffer.putInt(parentId);
         
         return buffer.array();
     }
@@ -127,10 +132,11 @@ public class FCB {
         long creationDate = buffer.getLong();
         long modificationDate = buffer.getLong();
         byte isOpen = buffer.get();
+        int parentId = buffer.getInt();
              
         
-        FCB fc = new FCB(name, type, ownerID, groupId, permissions, sizeUsed, startBlock, blockCount
-        , creationDate, modificationDate, isOpen);
+        FCB fc = new FCB(name, type, ownerID, groupId, permissions, sizeUsed, startBlock, blockCount,
+            creationDate, modificationDate, isOpen, parentId);
         return fc;
     }    
 }

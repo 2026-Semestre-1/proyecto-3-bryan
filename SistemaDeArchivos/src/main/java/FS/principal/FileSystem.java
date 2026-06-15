@@ -36,8 +36,8 @@ public class FileSystem {
     }    
 
     public FCB getFCB(int index){
-        long offset = superBlock.getFcbStart() + (index * 59);
-        byte[] data = disk.read(offset, 59);
+        long offset = superBlock.getFcbStart() + (index * 63);
+        byte[] data = disk.read(offset, 63);
         return FCB.fromBytes(data);
     }    
     
@@ -61,7 +61,7 @@ public class FileSystem {
         long sizeBitmapOpenFiles = 10; // 80 archivos abiertos
         long sizeUsuarios = 900;        // 90 bytes × 10 usuarios
         long sizeGrupos = 275;          // 55 bytes × 5 grupos
-        long sizeFCB = 5900;            // 59 bytes × 100 FCBs
+        long sizeFCB = 6300;            // 63 bytes × 100 FCBs
         
         
 
@@ -127,7 +127,8 @@ public class FileSystem {
         1,
         System.currentTimeMillis(),
         System.currentTimeMillis(),
-        (byte) 0
+        (byte) 0,
+        -1
         );
         
         disk.write(offsetFCB, rootFCB.toBytes());
@@ -146,9 +147,10 @@ public class FileSystem {
         1,
         System.currentTimeMillis(),
         System.currentTimeMillis(),
-        (byte) 0
+        (byte) 0,
+        0
         );        
-        disk.write(offsetFCB + (1 * 59), userFCB.toBytes());
+        disk.write(offsetFCB + (1 * 63), userFCB.toBytes());
         
 
         int homeRootBlock = bitmapBlocks.findFreeBit();
@@ -165,9 +167,10 @@ public class FileSystem {
             1,
             System.currentTimeMillis(),
             System.currentTimeMillis(),
-            (byte) 0
+            (byte) 0,
+            1
         );
-        disk.write(offsetFCB + (2 * 59), homeRootFCB.toBytes());    
+        disk.write(offsetFCB + (2 * 63), homeRootFCB.toBytes());    
         disk.write(offsetBitmapBloques, bitmapBlocks.toBytes());
         
         // Creamos usuario root
@@ -176,9 +179,14 @@ public class FileSystem {
         
 
         DirectoryEntry entryUser = new DirectoryEntry("user",1);
-        DirectoryEntry entryRoot = new DirectoryEntry("root",2);
         disk.write(offsetDataZone + (0 * blockSize), entryUser.toBytes());
+        rootFCB.setSizeUsed(1);
+        disk.write(offsetFCB, rootFCB.toBytes());
+        
+        DirectoryEntry entryRoot = new DirectoryEntry("root",2);       
         disk.write(offsetDataZone + (1 * blockSize), entryRoot.toBytes());
+        userFCB.setSizeUsed(1);
+        disk.write(offsetFCB + (1 * 63), userFCB.toBytes());        
         this.disk = disk;
         this.superBlock = superBlock;
         this.bitmapBlocks = bitmapBlocks;
@@ -213,8 +221,8 @@ public class FileSystem {
     
     public int freeslotFCB(){
         for (int x = 0; x < 100; x++ ){
-            long offset = superBlock.getFcbStart()+ (x * 59);
-            byte[] data = disk.read(offset, 59);
+            long offset = superBlock.getFcbStart()+ (x * 63);
+            byte[] data = disk.read(offset, 63);
             if(data[0] == 0){
                 return x;
             }
@@ -234,7 +242,7 @@ public class FileSystem {
     }      
     
     public void writeFCB(FCB fcb , int index){
-        long offset = superBlock.getFcbStart() + (index * 59);
+        long offset = superBlock.getFcbStart() + (index * 63);
         disk.write(offset, fcb.toBytes());
     }    
     

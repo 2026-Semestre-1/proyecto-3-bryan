@@ -99,7 +99,7 @@ public class Terminal {
                     int newBlock = fs.bitmapBlocks.findFreeBit();
                     fs.bitmapBlocks.markBusy(newBlock);
                     FCB fc = new FCB(userName, (byte)1, slot, slotG, FCB.grantPerm(7,0), 0, 
-                        newBlock, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0);
+                        newBlock, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0, 1);
                     User us = new User(userName, password, fullName, slotG, slotFC);
                     
                     // Guardo ahora en disco
@@ -283,6 +283,38 @@ public class Terminal {
                 break;
                 
             
+            case "pwd":
+                FCB temp = currentDirectory;
+                String pwdPath = "";
+                while (temp.getParentId() != -1) {
+                    pwdPath = "/" + temp.getName() + pwdPath;
+                    temp = fs.getFCB(temp.getParentId());
+                }
+                pwdPath = pwdPath.isEmpty() ? "/" : pwdPath;
+                System.out.println("Ruta actual: " + pwdPath);
+                break;
+                
+            case "cd":
+                System.out.println("Vamos a hacer un cd");
+                if(!parts[1].equals("..")){
+                    long data = fs.superBlock.getDataZoneStart();
+                    int directionDirec = this.currentDirectory.getStartBlock();
+                    long offsetData = data + (directionDirec * 512);
+                    for(int p = 0; p < this.currentDirectory.getSizeUsed(); p++ ){
+                        byte[] dataEntry = fs.disk.read(offsetData + (p * 24), 24);
+                        DirectoryEntry var = DirectoryEntry.fromBytes(dataEntry);
+                        if( var.getName().equals(parts[1])){
+                            this.currentDirectory = fs.getFCB(var.getFcbId());
+                        }
+
+
+                    }                    
+                } else {
+                    if(currentDirectory.getParentId() != -1){
+                        currentDirectory = fs.getFCB(currentDirectory.getParentId());
+                    }
+                }
+
                 
             
         }
