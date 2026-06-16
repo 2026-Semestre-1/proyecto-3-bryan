@@ -294,6 +294,121 @@ public class Terminal {
                 System.out.println("Ruta actual: " + pwdPath);
                 break;
                 
+                
+                
+            case "mkdir":
+                System.out.println("Vamos a hacer directorios");
+                if(parts.length == 2){
+                    //Caso en el que solo es un directorio mkdir a
+
+                    String directName = parts[1];
+                    long data = fs.superBlock.getDataZoneStart();
+                    int directionDirec = this.currentDirectory.getStartBlock();
+                    long offsetData = data + (directionDirec * 512);
+                    for(int p = 0; p < this.currentDirectory.getSizeUsed(); p++ ){
+                        byte[] dataEntry = fs.disk.read(offsetData + (p * 24), 24);
+                        DirectoryEntry var = DirectoryEntry.fromBytes(dataEntry);
+                        if( var.getName().equals(directName)){
+                            System.out.println("El directorio ya existe actualmente");
+                            return 0;
+                        } 
+                    }
+
+                    int sloftFreeFCB = fs.freeslotFCB();                    
+                    if (sloftFreeFCB != -1){
+                        int newBlockFCB = fs.bitmapBlocks.findFreeBit();
+                        if (newBlockFCB != -1){ 
+                            fs.bitmapBlocks.markBusy(newBlockFCB);
+                            int user2 = fs.findUser(currentUser.getUserName());
+                            int grouID2 = this.currentUser.getGroupId();
+                            int parentID2 = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
+                            FCB fcb2 = new FCB(directName, (byte)1, user2, grouID2, FCB.grantPerm(7,0), 0, 
+                                newBlockFCB, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0, parentID2);
+                            fs.writeFCB(fcb2, sloftFreeFCB);
+                            fs.disk.write(fs.superBlock.getBitmapBlocksStart(), fs.bitmapBlocks.toBytes());
+
+                            long posDisk = fs.superBlock.dataZoneStart + (currentDirectory.getStartBlock() * 512 ) + (currentDirectory.getSizeUsed() * 24);
+                            DirectoryEntry direct2 = new DirectoryEntry(directName, sloftFreeFCB);
+                            fs.disk.write(posDisk, direct2.toBytes());
+                            currentDirectory.setSizeUsed(currentDirectory.getSizeUsed()+1);
+                            fs.writeFCB(currentDirectory, parentID2);    
+                            System.out.println("El directorio fue creado");
+                            return 0;
+                        } else {
+                            System.out.println("No hay bloques libres");
+                            return 0;
+                        }
+                       
+                    } else {
+                        System.out.println("No hay espacio disponibles para el FCB");
+                        return 0;
+                        
+                    }
+
+                    
+                } else if(parts.length > 2){
+                    System.out.println("Caso de varios directorios");
+                    int cont = 1;
+                    while(cont < parts.length){
+                        String directoryNames = parts[cont];
+                        System.out.println("Nombre del directorio: " + directoryNames);
+                        long data = fs.superBlock.getDataZoneStart();
+                        int directionDirec = this.currentDirectory.getStartBlock();
+                        long offsetData = data + (directionDirec * 512);
+                        for(int p = 0; p < this.currentDirectory.getSizeUsed(); p++ ){
+                            byte[] dataEntry = fs.disk.read(offsetData + (p * 24), 24);
+                            DirectoryEntry var = DirectoryEntry.fromBytes(dataEntry);
+                            if( var.getName().equals(directoryNames)){
+                                System.out.println("El directorio ya existe actualmente");
+                                return 0;
+                            } 
+                        }
+
+                        int sloftFreeFCB = fs.freeslotFCB();                    
+                        if (sloftFreeFCB != -1){
+                            int newBlockFCB = fs.bitmapBlocks.findFreeBit();
+                            if (newBlockFCB != -1){ 
+                                fs.bitmapBlocks.markBusy(newBlockFCB);
+                                int user2 = fs.findUser(currentUser.getUserName());
+                                int grouID2 = this.currentUser.getGroupId();
+                                int parentID2 = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
+                                FCB fcb2 = new FCB(directoryNames, (byte)1, user2, grouID2, FCB.grantPerm(7,0), 0, 
+                                    newBlockFCB, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0, parentID2);
+                                fs.writeFCB(fcb2, sloftFreeFCB);
+                                fs.disk.write(fs.superBlock.getBitmapBlocksStart(), fs.bitmapBlocks.toBytes());
+
+                                long posDisk = fs.superBlock.dataZoneStart + (currentDirectory.getStartBlock() * 512 ) + (currentDirectory.getSizeUsed() * 24);
+                                DirectoryEntry direct2 = new DirectoryEntry(directoryNames, sloftFreeFCB);
+                                fs.disk.write(posDisk, direct2.toBytes());
+                                currentDirectory.setSizeUsed(currentDirectory.getSizeUsed()+1);
+                                fs.writeFCB(currentDirectory, parentID2);  
+                                if (cont == (parts.length-1)){
+                                    System.out.println("soy cont: " + cont);
+                                    System.out.println("El directorio fue creado: " + directoryNames);
+                                    return 0;
+                                }                                    
+                                cont++;                            
+                                System.out.println("El directorio fue creado: " + directoryNames);
+
+                                
+
+                                
+                                
+                            } else {
+                                System.out.println("No hay bloques libres");
+                                return 0;
+                            }
+
+                        } else {
+                            System.out.println("No hay espacio disponibles para el FCB");
+                            return 0;
+
+                        }                        
+                    }
+                    System.out.println("No se pudieron crear los directorios");
+                    return 0;
+                }
+                
             case "cd":
                 System.out.println("Vamos a hacer un cd");
                 if(!parts[1].equals("..")){
@@ -314,7 +429,64 @@ public class Terminal {
                         currentDirectory = fs.getFCB(currentDirectory.getParentId());
                     }
                 }
+                
+                
+            case "touch":
+                System.out.println("Vamos a hacer un touch");
+                
+                if(parts.length == 2){
+                    
+                    String nameFCB3 = parts[1];
+                    
+                    // Validacion del nombre
+                    long data = fs.superBlock.getDataZoneStart();
+                    int directionDirec = this.currentDirectory.getStartBlock();
+                    long offsetData = data + (directionDirec * 512);
+                    for(int p = 0; p < this.currentDirectory.getSizeUsed(); p++ ){
+                        byte[] dataEntry = fs.disk.read(offsetData + (p * 24), 24);
+                        DirectoryEntry var = DirectoryEntry.fromBytes(dataEntry);
+                        if( var.getName().equals(nameFCB3)){
+                            System.out.println("El archivo ya existe actualmente");
+                            return 0;
+                        } 
+                    }
 
+
+                    //Busco FCB libre
+                   
+                    int freeHoleFCB = fs.freeslotFCB();
+                    if (freeHoleFCB == -1 ){
+                        System.out.println("No queda espacio para más FCBS");
+                        return 0;
+                    }
+                    
+                    int idUserFCB3 = fs.findUser(currentUser.getUserName());
+                    int idGroupFCB3 = currentUser.getGroupId();
+                    int parentID3 = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
+                    // Creo FCB (Solo memo)
+                    FCB fcb3 = new FCB(nameFCB3, (byte)0, idUserFCB3, idGroupFCB3, FCB.grantPerm(7,0), 0,0,0, System.currentTimeMillis(),
+                    System.currentTimeMillis(), (byte)0 ,parentID3);
+                    
+                    
+                    // Lo guardamos en disco
+                    fs.writeFCB(fcb3, freeHoleFCB);
+                    
+                    // Calculo la dirección del directorio papa
+                    long directoryDirectFather = fs.superBlock.getDataZoneStart() + (currentDirectory.getStartBlock() * 512) + (currentDirectory.getSizeUsed() * 24);
+                    DirectoryEntry directoryEntry3 = new DirectoryEntry(nameFCB3,freeHoleFCB);
+                    fs.disk.write(directoryDirectFather, directoryEntry3.toBytes());
+                    
+                    currentDirectory.setSizeUsed((currentDirectory.getSizeUsed()+1));
+                    fs.writeFCB(currentDirectory, parentID3);
+                    
+                    
+                } else if (parts.length == 1){
+                    System.out.println("Ingrese el nombre del archivo");
+                    return 0;
+                } else {
+                    System.out.println("Ingrese correctamente el comando");
+                    return 0;
+                }
                 
             
         }

@@ -274,5 +274,16 @@ public class FileSystem {
         return u.getPassword().equals(password);
     }
     
+    public int findFCBID(String name, int parentID){
+        for (int i = 0; i < 100; i++){
+            if(getFCB(i).getName().equals(name)){
+                if(getFCB(i).getParentId() == parentID){
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+    
     
 }
