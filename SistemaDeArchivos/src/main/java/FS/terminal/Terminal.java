@@ -551,6 +551,61 @@ public class Terminal {
                 
                 break;
                 
+            case "less":
+                if (parts.length < 2) {
+                    System.out.println("Ingrese el nombre del archivo");
+                    return 0;
+                }
+                String lessName = parts[1];
+
+                // Buscamos archivo para leerlo
+                long dataLess = fs.superBlock.getDataZoneStart();
+                int blockLess = currentDirectory.getStartBlock();
+                long offsetLess = dataLess + (blockLess * 512);
+
+                int fcbLess = -1;
+                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                    byte[] entryData = fs.disk.read(offsetLess + (i * 24), 24);
+                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                    if (entry.getName().equals(lessName)) {
+                        fcbLess = entry.getFcbId();
+                        break;
+                    }
+                }
+                if (fcbLess == -1) {
+                    System.out.println("Archivo no encontrado");
+                    return 0;
+                }
+
+                // obtenemos el fcb del archivo
+                FCB fcbLessFCB = fs.getFCB(fcbLess);
+                byte[] lessData = fs.readFileData(fcbLessFCB);
+                // Todo el cuerpo del archivo por linea
+                String[] lessLines = new String(lessData, 0, fcbLessFCB.getSizeUsed()).split("\n", -1);
+                int lineIndex = 0;
+
+                // Simple recorrido para ir linea por linea, hacia atras o con una pag completa que serian 20 lineas
+                while (true) {
+                    for (int i = lineIndex; i < lessLines.length && i < lineIndex + 20; i++) {
+                        System.out.println(lessLines[i]);
+                    }
+                    System.out.println("-- " + (lineIndex + 1) + "/" + lessLines.length + "  q -> salir  Enter -> sig  espacio -> pag  - ->atras");
+
+                    String input = scan.nextLine();
+                    if (input.equals("q")) {
+                        break;
+                    } else if (input.isEmpty()) {
+                        if (lineIndex < lessLines.length - 1) lineIndex++;
+                    } else if (input.equals(" ") || input.equals("  ")) {
+                        lineIndex = Math.min(lineIndex + 20, lessLines.length - 1);
+                    } else if (input.equals("-")) {
+                        if (lineIndex > 0) {
+                            lineIndex--;
+                        }
+                    }
+                }
+                break;
+                
             case "note":             
                 if (parts.length < 2) {
                     System.out.println("Ingrese el nombre del archivo");
