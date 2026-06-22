@@ -6,7 +6,7 @@ import FS.terminal.Terminal;
 
 
 public class Main{ 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws java.io.IOException {
         FileSystem fs = new FileSystem();
         Scanner scanner = new Scanner(System.in);
 

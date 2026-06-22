@@ -5,6 +5,7 @@
 package FS.terminal;
 import FS.structures.*;
 import FS.principal.*;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Scanner;
 /**
@@ -40,7 +41,7 @@ public class Terminal {
     public FileSystem getFs() { return fs; }
     public void setFs(FileSystem fs) { this.fs = fs; }
 
-    public void start(){
+    public void start() throws IOException{
         Scanner scanner = new Scanner(System.in);
         while(true){
             System.out.println(currentUser.getUserName() + "@miFS: ");
@@ -61,7 +62,7 @@ public class Terminal {
         }
     }
     
-    public int executeCommand(String command, String[] parts){
+    public int executeCommand(String command, String[] parts) throws IOException{
         Scanner scan = new Scanner(System.in);
         switch(command.toLowerCase()){
             case "exit":
@@ -451,20 +452,26 @@ public class Terminal {
                         } 
                     }
 
-
                     //Busco FCB libre
                    
                     int freeHoleFCB = fs.freeslotFCB();
                     if (freeHoleFCB == -1 ){
                         System.out.println("No queda espacio para más FCBS");
                         return 0;
-                    }
+                    }                    
+                    
+                    // Buscamos un bloque libre de 512
+                    int newBlockT = fs.bitmapBlocks.findFreeBit();
+                    fs.bitmapBlocks.markBusy(newBlockT);
+                    fs.disk.write(fs.superBlock.getBitmapBlocksStart(), fs.bitmapBlocks.toBytes());
+
+                    
                     
                     int idUserFCB3 = fs.findUser(currentUser.getUserName());
                     int idGroupFCB3 = currentUser.getGroupId();
                     int parentID3 = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
                     // Creo FCB (Solo memo)
-                    FCB fcb3 = new FCB(nameFCB3, (byte)0, idUserFCB3, idGroupFCB3, FCB.grantPerm(7,0), 0,0,0, System.currentTimeMillis(),
+                    FCB fcb3 = new FCB(nameFCB3, (byte)0, idUserFCB3, idGroupFCB3, FCB.grantPerm(7,0), 0, newBlockT, 1, System.currentTimeMillis(),
                     System.currentTimeMillis(), (byte)0 ,parentID3);
                     
                     
@@ -487,6 +494,133 @@ public class Terminal {
                     System.out.println("Ingrese correctamente el comando");
                     return 0;
                 }
+                
+            case "cat":
+                if (parts.length < 2) {
+                    System.out.println("Ingrese el nombre del archivo");
+                    return 0;
+                }
+                String fileName2 = parts[1];                
+                
+                // Busco el archivo y lo trato de leer en el directorio actual
+                long data2 = fs.superBlock.getDataZoneStart();
+                int blockDir2 = currentDirectory.getStartBlock();
+                long offset2 = data2 + (blockDir2 * 512);
+
+                int fcbIndex2 = -1;
+                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                    byte[] entryData = fs.disk.read(offset2 + (i * 24), 24);
+                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                    if (entry.getName().equals(fileName2)) {
+                        fcbIndex2 = entry.getFcbId();
+                        break;
+                    }
+                } 
+                if (fcbIndex2 == -1){
+                    System.out.println("Archivo no encontrado");
+                    return 0;
+                }
+                
+                FCB fileFCB2 = fs.getFCB(fcbIndex2);
+                
+                if (!currentUser.getUserName().equals("root")){
+                    int ownerPerm = FCB.getOwnerPerm(fileFCB2.getPermissions());
+                    int groupPerm = FCB.getGroupPerm(fileFCB2.getPermissions());
+                    int userIndex = fs.findUser(currentUser.getUserName());
+                    int permissions;
+
+                    if (userIndex == fileFCB2.getOwnerId()) {
+                        permissions = ownerPerm;
+                    } else if (currentUser.getGroupId() == fileFCB2.getGroupId()) {
+                        permissions = groupPerm;
+                    } else {
+                        System.out.println("No eres dueño ni perteneces al grupo del archivo");
+                        return 0;
+                    }
+
+                    if ((permissions & 4) == 0) {
+                        System.out.println("No tienes permiso de lectura");
+                        return 0;
+                    }                    
+                }
+                
+                // pasa validaciones y entonces leemos el contenido
+                byte[] fileInfo = fs.readFileData(fileFCB2);
+                String content = new String(fileInfo, 0, fileFCB2.getSizeUsed());
+                System.out.println(content);
+                
+                break;
+                
+            case "note":             
+                if (parts.length < 2) {
+                    System.out.println("Ingrese el nombre del archivo");
+                    return 0;
+                }
+                String fileName = parts[1];
+
+                // Vemos si el archivo esta en el directorial actual
+                long data = fs.superBlock.getDataZoneStart();
+                int blockDir = currentDirectory.getStartBlock();
+                long offset = data + (blockDir * 512);
+
+                int fcbIndex = -1;
+                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                    byte[] entryData = fs.disk.read(offset + (i * 24), 24);
+                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                    if (entry.getName().equals(fileName)) {
+                        fcbIndex = entry.getFcbId();
+                        break;
+                    }
+                }
+
+                if (fcbIndex == -1) {
+                    System.out.println("Archivo no encontrado");
+                    return 0;
+                }
+
+                FCB fileFCB = fs.getFCB(fcbIndex);
+
+                // vemos si el usuario tiene permisos
+                if (!currentUser.getUserName().equals("root")) {
+                    int ownerPerm = FCB.getOwnerPerm(fileFCB.getPermissions());
+                    int groupPerm = FCB.getGroupPerm(fileFCB.getPermissions());
+                    int userIndex = fs.findUser(currentUser.getUserName());
+                    int permissions2;
+
+                    if (userIndex == fileFCB.getOwnerId()) {
+                        permissions2 = ownerPerm;
+                    } else if (currentUser.getGroupId() == fileFCB.getGroupId()) {
+                        permissions2 = groupPerm;
+                    } else {
+                        System.out.println("No eres dueño ni perteneces al grupo del archivo");
+                        return 0;
+                    }
+
+                    if ((permissions2 & 4) == 0) {
+                        System.out.println("No tienes permiso de lectura");
+                        return 0;
+                    }
+                    if ((permissions2 & 2) == 0) {
+                        System.out.println("No tienes permiso de escritura");
+                        return 0;
+                    }
+                }
+
+                // Leemos disco
+                byte[] fileData = fs.readFileData(fileFCB);
+                String content3 = new String(fileData, 0, fileFCB.getSizeUsed());
+
+                // aqui ya abrimos el swing par verlo graficamente
+                NoteEditor editor = new NoteEditor(content3);
+                String newContent= editor.openEditor();
+
+                if (!newContent.equals(content3)) {
+                    fs.writeFileData(fileFCB, fcbIndex, newContent.getBytes());
+                    System.out.println("Archivo guardado");
+                } else {
+                    System.out.println("No se guardaron cambios");
+                }
+                break;
                 
             
         }

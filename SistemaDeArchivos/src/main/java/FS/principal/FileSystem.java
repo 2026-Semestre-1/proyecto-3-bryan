@@ -286,4 +286,50 @@ public class FileSystem {
     }
     
     
+    public byte[] readFileData(FCB fcb){
+        long pos = superBlock.getDataZoneStart() + (fcb.getStartBlock() * 512);
+        int size = fcb.getBlockCount() * 512;
+        return disk.read(pos, size);
+    }
+    
+    public void writeFileData(FCB fcb, int fcbIndex, byte[] data){
+        int blocksWeNeeded = (int)Math.ceil(data.length / 512.0);
+        
+        if(blocksWeNeeded <= fcb.getBlockCount()){
+            // Caso en el que cabe en el espacio que tenemos
+            long pos = superBlock.getDataZoneStart() + (fcb.getStartBlock() * 512);
+            disk.write(pos, data);
+        } else {
+            // Caso en el que no cabe en el mismo espacio entonces buscamos un hueco grande 
+                int firstBlock = bitmapBlocks.findFreeConsecutiveBlocks(blocksWeNeeded); // Encontramos desde donde empiezan los huecos
+                if( firstBlock == -1){
+                    System.out.println("No hay suficiente espacio contiguo");
+                    return;
+                }
+                    // Marcamos ocupados los huecos
+                    for(int i = 0; i < blocksWeNeeded; i++){
+                        bitmapBlocks.markBusy(firstBlock + i);
+                        
+                    }
+                    
+                    //Liberamos los viejos
+                    for (int i = 0; i < fcb.getBlockCount(); i++){
+                        bitmapBlocks.markFree(fcb.getStartBlock() + i);
+                    }
+                    
+                    // Escribimos lo que haya puesto el usuario en los nuevos bloques
+                    long pos = superBlock.getDataZoneStart() + (firstBlock * 512);
+                    disk.write(pos, data);
+                    fcb.setStartBlock(firstBlock);
+                    fcb.setBlockCount(blocksWeNeeded);
+                    
+                    disk.write(superBlock.getBitmapBlocksStart(), bitmapBlocks.toBytes());
+            
+        }
+        
+        fcb.setSizeUsed(data.length);
+        writeFCB(fcb, fcbIndex);   
+    }
+
+    
 }
