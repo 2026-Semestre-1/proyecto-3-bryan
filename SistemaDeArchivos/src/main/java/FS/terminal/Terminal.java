@@ -6,7 +6,9 @@ package FS.terminal;
 import FS.structures.*;
 import FS.principal.*;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.Scanner;
 /**
  *
@@ -99,7 +101,7 @@ public class Terminal {
                     Group gr = new Group(userName, new int[]{slot});
                     int newBlock = fs.bitmapBlocks.findFreeBit();
                     fs.bitmapBlocks.markBusy(newBlock);
-                    FCB fc = new FCB(userName, (byte)1, slot, slotG, FCB.grantPerm(7,0), 0, 
+                    FCB fc = new FCB(userName, (byte)1, slot, slotG, FCB.grantPerm(7,5), 0, 
                         newBlock, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0, 1);
                     User us = new User(userName, password, fullName, slotG, slotFC);
                     
@@ -135,8 +137,12 @@ public class Terminal {
                 if (fs.findGroup(groupName) == -1){            
                     int slotGroupAdd = fs.freeslotGroups();
                     if (slotGroupAdd != -1){
+                        int creatorIdx = fs.findUser(currentUser.getUserName());
                         Group grup = new Group(groupName, new int[10]);
                         Arrays.fill(grup.getMembers(), -1);
+                        if (creatorIdx != -1) {
+                            grup.getMembers()[0] = creatorIdx;
+                        }
                         fs.writeGroup(grup, slotGroupAdd);  
                         System.out.println("El grupo fue creado con exito");
                         return 0;
@@ -323,7 +329,7 @@ public class Terminal {
                             int user2 = fs.findUser(currentUser.getUserName());
                             int grouID2 = this.currentUser.getGroupId();
                             int parentID2 = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
-                            FCB fcb2 = new FCB(directName, (byte)1, user2, grouID2, FCB.grantPerm(7,0), 0, 
+                            FCB fcb2 = new FCB(directName, (byte)1, user2, grouID2, FCB.grantPerm(7,5), 0, 
                                 newBlockFCB, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0, parentID2);
                             fs.writeFCB(fcb2, sloftFreeFCB);
                             fs.disk.write(fs.superBlock.getBitmapBlocksStart(), fs.bitmapBlocks.toBytes());
@@ -373,7 +379,7 @@ public class Terminal {
                                 int user2 = fs.findUser(currentUser.getUserName());
                                 int grouID2 = this.currentUser.getGroupId();
                                 int parentID2 = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
-                                FCB fcb2 = new FCB(directoryNames, (byte)1, user2, grouID2, FCB.grantPerm(7,0), 0, 
+                                FCB fcb2 = new FCB(directoryNames, (byte)1, user2, grouID2, FCB.grantPerm(7,5), 0, 
                                     newBlockFCB, 1, System.currentTimeMillis(), System.currentTimeMillis(), (byte)0, parentID2);
                                 fs.writeFCB(fcb2, sloftFreeFCB);
                                 fs.disk.write(fs.superBlock.getBitmapBlocksStart(), fs.bitmapBlocks.toBytes());
@@ -410,6 +416,96 @@ public class Terminal {
                     return 0;
                 }
                 
+                
+            case "mv":
+                // buscamos el fcb del archivo
+                long dataMV = fs.superBlock.getDataZoneStart();
+                int blockDirMV = currentDirectory.getStartBlock();
+                long offsetMV = dataMV + (blockDirMV * 512);
+                int fcbIndexMV = -1;
+                int entryIndexMV = -1;
+                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                    byte[] entryData = fs.disk.read(offsetMV + (i * 24), 24);
+                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                    if (entry.getName().equals(parts[1])) {
+                        fcbIndexMV = entry.getFcbId();
+                        entryIndexMV = i;
+                        break;
+                    }
+                }
+                if (fcbIndexMV == -1) {
+                    System.out.println("Archivo no encontrado");
+                    return 0;
+                }
+
+                // Vemos si es dueño o ususario root 
+                FCB fileFCBMV = fs.getFCB(fcbIndexMV);
+                if (!currentUser.getUserName().equals("root")) {
+                    int currentIdx = fs.findUser(currentUser.getUserName());
+                    if (currentIdx != fileFCBMV.getOwnerId()) {
+                        System.out.println("No eres root ni dueño del archivo");
+                        return 0;
+                    }
+                    int ownerPerm = FCB.getOwnerPerm(fileFCBMV.getPermissions());
+                    if ((ownerPerm & 2) == 0) {
+                        System.out.println("No tienes permiso de escritura");
+                        return 0;
+                    }
+                }
+
+                if (parts[2].contains("/")) {
+                    // Aqui lo movemos de archivo mañnan lo hago
+                } else {
+                    // Veo si no esta el nombre ya
+                    for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                        byte[] entryData = fs.disk.read(offsetMV + (i * 24), 24);
+                        DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                        if (entry.getName().equals(parts[2])) {
+                            System.out.println("El nombre ya existe");
+                            return 0;
+                        }
+                    }
+
+                    // Cambiamso en directorio
+                    long entryPos = offsetMV + (entryIndexMV * 24);
+                    DirectoryEntry renamedEntry = new DirectoryEntry(parts[2], fcbIndexMV);
+                    fs.disk.write(entryPos, renamedEntry.toBytes());
+
+                    // Cambiamos en fcb
+                    fileFCBMV.setName(parts[2]);
+                    fs.writeFCB(fileFCBMV, fcbIndexMV);
+                    System.out.println("Nombre cambiado de " + parts[1] + " a " + parts[2]);
+                }
+                break;
+                
+            case "ls":
+                if (parts.length > 1 && parts[1].equals("-R")) {
+                    lsRecursive(fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId()), buildPath(currentDirectory));
+                } else {
+                    
+                    long dataLs = fs.superBlock.getDataZoneStart();
+                    int directionLs = this.currentDirectory.getStartBlock();
+                    long offsetLs = dataLs + (directionLs * 512);
+                    for(int s = 0; s < this.currentDirectory.getSizeUsed(); s++){
+                        byte[] dataEntryLs = fs.disk.read(offsetLs +(s * 24), 24);
+                        DirectoryEntry varLs = DirectoryEntry.fromBytes(dataEntryLs);
+                        int fcbIDL = varLs.getFcbId();
+                        FCB fcLs = fs.getFCB(fcbIDL);
+                        if(fcLs.getType() == 1) {
+                            System.out.println("Directorio " + varLs.getName());
+
+
+                        } else{
+                            System.out.println("Archivo " + varLs.getName());
+
+                        }   
+
+                    }
+                }
+                
+                
+                break;
+                
             case "cd":
                 System.out.println("Vamos a hacer un cd");
                 if(!parts[1].equals("..")){
@@ -425,13 +521,13 @@ public class Terminal {
 
 
                     }                    
-                } else {
-                    if(currentDirectory.getParentId() != -1){
-                        currentDirectory = fs.getFCB(currentDirectory.getParentId());
-                    }
-                }
-                
-                
+        } else {
+            if(currentDirectory.getParentId() != -1){
+                currentDirectory = fs.getFCB(currentDirectory.getParentId());
+            }
+        }
+        break;
+        
             case "touch":
                 System.out.println("Vamos a hacer un touch");
                 
@@ -471,7 +567,7 @@ public class Terminal {
                     int idGroupFCB3 = currentUser.getGroupId();
                     int parentID3 = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
                     // Creo FCB (Solo memo)
-                    FCB fcb3 = new FCB(nameFCB3, (byte)0, idUserFCB3, idGroupFCB3, FCB.grantPerm(7,0), 0, newBlockT, 1, System.currentTimeMillis(),
+                    FCB fcb3 = new FCB(nameFCB3, (byte)0, idUserFCB3, idGroupFCB3, FCB.grantPerm(6,4), 0, newBlockT, 1, System.currentTimeMillis(),
                     System.currentTimeMillis(), (byte)0 ,parentID3);
                     
                     
@@ -531,7 +627,7 @@ public class Terminal {
 
                     if (userIndex == fileFCB2.getOwnerId()) {
                         permissions = ownerPerm;
-                    } else if (currentUser.getGroupId() == fileFCB2.getGroupId()) {
+                    } else if (userBelongsToGroup(userIndex, fileFCB2.getGroupId())) {
                         permissions = groupPerm;
                     } else {
                         System.out.println("No eres dueño ni perteneces al grupo del archivo");
@@ -606,6 +702,288 @@ public class Terminal {
                 }
                 break;
                 
+                
+            case "chown":
+                // Revisamos usuario
+                if (!this.currentUser.getUserName().equals("root")) {
+                    System.out.println("Para usar el comando debe ser root");
+                    return 0;
+                }
+                
+                // Revisamos si va hacer recursivo o no para obtener el usuario y archivo/directorio
+                boolean recursiveC = false;
+                String userNameChown;
+                String fileNameChown;
+
+                if (parts[1].equals("-R")) {
+                    recursiveC = true;
+                    userNameChown = parts[2];
+                    fileNameChown = parts[3];
+                } else {
+                    userNameChown = parts[1];
+                    fileNameChown = parts[2];
+                }
+
+                int userIndexC = fs.findUser(userNameChown);
+                if (userIndexC == -1) {
+                    System.out.println("Usuario no encontrado");
+                    return 0;
+                }
+
+                // Buscamos el archivo en el directorio actual
+                long dataC = fs.superBlock.getDataZoneStart();
+                int blockDirC = currentDirectory.getStartBlock();
+                long offsetC = dataC + (blockDirC * 512);
+
+                int fcbIndexC = -1;
+                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                    byte[] entryDataC = fs.disk.read(offsetC + (i * 24), 24);
+                    DirectoryEntry entryC = DirectoryEntry.fromBytes(entryDataC);
+                    if (entryC.getName().equals(fileNameChown)) {
+                        fcbIndexC = entryC.getFcbId();
+                        break;
+                    }
+                }
+                if (fcbIndexC == -1) {
+                    System.out.println("Archivo no encontrado");
+                    return 0;
+                }
+
+                
+                if (recursiveC) {
+                    // Caso recursivo solo le pasamos el indice del fcb y el del usuario
+                    FCB dirFCB = fs.getFCB(fcbIndexC);
+                    if (dirFCB.getType() != 1) {
+                        System.out.println("-R solo aplica para directorios");
+                        return 0;
+                    }
+                    chownRecursive(fcbIndexC, userIndexC);
+                    System.out.println("Dueño cambiado a " + userNameChown + " (recursivo)");
+                } else {
+                    // Caso normal se actualiza directamente y escribimos en disco
+                    FCB fileFCBC = fs.getFCB(fcbIndexC);
+                    fileFCBC.setOwnerId(userIndexC);
+                    System.out.println("Dueño cambiado a " + userNameChown);
+                    fs.writeFCB(fileFCBC, fcbIndexC);
+                }
+
+                break;
+                
+            case "chgrp":
+                if (parts.length < 3) {
+                    System.out.println("Uso: chgrp [-R] grupo archivo");
+                    return 0;
+                }
+
+                boolean itsRecursive = false;
+                String groupNameG;
+                String fileOrDirec;
+
+                if (parts[1].equals("-R")) {
+                    if (parts.length < 4) {
+                        System.out.println("Uso: chgrp -R grupo archivo");
+                        return 0;
+                    }
+                    itsRecursive = true;
+                    groupNameG = parts[2];
+                    fileOrDirec = parts[3];
+                } else {
+                    groupNameG = parts[1];
+                    fileOrDirec = parts[2];
+                }
+
+                int groupIndexG = fs.findGroup(groupNameG);
+                if (groupIndexG == -1) {
+                    System.out.println("Grupo no encontrado");
+                    return 0;
+                }
+                Group groupC = fs.getGroup(groupIndexG);
+
+                // Buscamos el archivo en el directorio actual
+                long dataG = fs.superBlock.getDataZoneStart();
+                int blockDirG = currentDirectory.getStartBlock();
+                long offsetG = dataG + (blockDirG * 512);
+                int fcbIndexG = -1;
+                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                    byte[] entryData = fs.disk.read(offsetG + (i * 24), 24);
+                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                    if (entry.getName().equals(fileOrDirec)) {
+                        fcbIndexG = entry.getFcbId();
+                        break;
+                    }
+                }
+
+                if (fcbIndexG == -1) {
+                    System.out.println("Archivo no encontrado");
+                    return 0;
+                }
+
+                FCB fileFCBG = fs.getFCB(fcbIndexG);
+
+                // Vemos si es root y sino los permisos del dueño
+                if (!currentUser.getUserName().equals("root")) {
+                    int currentUserIdx = fs.findUser(currentUser.getUserName());
+                    boolean isTheOwner = (currentUserIdx == fileFCBG.getOwnerId());
+                    boolean inGroup = false;
+                    for (int m : groupC.getMembers()) {
+                        if (m == currentUserIdx) { inGroup = true; break; }
+                    }
+                    if (!isTheOwner || !inGroup) {
+                        System.out.println("No tienes permisos para cambiar el grupo");
+                        return 0;
+                    }
+                }
+
+                if (itsRecursive) {
+                        //Caso recursivo
+                        FCB dirFCB = fs.getFCB(fcbIndexG);
+                        if (dirFCB.getType() != 1) {
+                            System.out.println("-R solo aplica para directorios");
+                            return 0;
+                        }
+                        chgrpRecursive(fcbIndexG, groupIndexG);
+                        System.out.println("Grupo cambiado a " + groupNameG + " (recursivo)");
+                } else {
+                    // Caso normal lo actualizo directo
+                    fileFCBG.setGroupId(groupIndexG);
+                    fs.writeFCB(fileFCBG, fcbIndexG);
+                    System.out.println("Grupo cambiado a " + groupNameG);
+                }
+                break;
+                
+            case "chmod": {
+                String perms = parts[1];
+                int numberPerms = Integer.parseInt(perms);
+                int userPerm = numberPerms / 10;
+                int groupPermMod = numberPerms % 10;
+                String fileNameMod = parts[2];
+                
+                // Buscamos el archivo 
+                long dataMod = fs.superBlock.getDataZoneStart();
+                int blockDirMod = currentDirectory.getStartBlock();
+                long offsetMod = dataMod + (blockDirMod * 512);
+                int fcbIndexMod = -1;
+                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                    byte[] entryData = fs.disk.read(offsetMod + (i * 24), 24);
+                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                    if (entry.getName().equals(fileNameMod)) {
+                        fcbIndexMod = entry.getFcbId();
+                        break;
+                    }
+                }
+
+                if (fcbIndexMod == -1) {
+                    System.out.println("Archivo no encontrado");
+                    return 0;
+                }
+
+                FCB fileFCBM = fs.getFCB(fcbIndexMod);
+
+                int ownerModID = fileFCBM.getOwnerId();
+                User userMod = fs.getUser(ownerModID);
+
+                // Valido que sea el dueño del archivo o el usuario root 
+                if(!currentUser.getUserName().equals(userMod.getUserName()) && !currentUser.getUserName().equals("root")){
+                    System.out.println("No puedes dar permisos del archivo si no eres dueño o root");
+                    return 0;
+                }
+                // Guardo los permisos de usuarios en los 3 bits altos y lo demas en el restatnte
+                // asi seteamos los permisos de larchivo
+                byte permissions = (byte)((userPerm << 3) | groupPermMod);
+                fileFCBM.setPermissions(permissions);
+                fs.writeFCB(fileFCBM, fcbIndexMod);
+                System.out.println("Se dieron permisos de usuario: " + userPerm + "y de grupo: " + groupPermMod);
+                break;
+            }
+              
+
+            case "viewfilesopen":
+                int totalOpenFiles = fs.bitmapOpenFiles.bitmap.cardinality();
+                System.out.println("Archivos abiertos actualmente: " + totalOpenFiles);
+                break;
+                
+            case "viewfcb": 
+                System.out.println("Información del FCB del: " + parts[1]);
+                long dataFCBV = fs.superBlock.getDataZoneStart();
+                int blockFCBV = currentDirectory.getStartBlock();
+                long offsetFCBV = dataFCBV + (blockFCBV * 512);
+                int indexFCBV = -1;
+                for (int i = 0; i < currentDirectory.getSizeUsed(); i++){
+                    byte[] entryFCBV = fs.disk.read(offsetFCBV + (i * 24),  24);
+                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryFCBV);
+                    if (entry.getName().equals(parts[1])) {
+                        indexFCBV = entry.getFcbId();
+                        break;
+                    } 
+                }
+                if (indexFCBV == -1) {
+                    System.out.println("Archivo no encontrado");
+                    return 0;
+                } 
+                FCB fileFCBV = fs.getFCB(indexFCBV);
+                User userFileFcb = fs.getUser(fileFCBV.getOwnerId());
+                Group groupFCb = fs.getGroup(fileFCBV.getGroupId());
+                String groupNameFC = groupFCb.getGroupName();
+                String usName = userFileFcb.getUserName();
+                String parentName;
+                if (fileFCBV.getParentId() == -1) {
+                    parentName = "/";
+                } else {
+                    parentName = fs.getFCB(fileFCBV.getParentId()).getName();
+                }
+                
+                
+                int userPerm2 = FCB.getOwnerPerm(fileFCBV.getPermissions());
+                int groupPerm2 = FCB.getGroupPerm(fileFCBV.getPermissions());
+                String isOpen;
+                if (fileFCBV.getIsOpen() == 1){
+                    isOpen = "abierto";
+                } else {
+                    isOpen = "cerrado";                  
+                }
+                
+                System.out.println("Nombre: " + fileFCBV.getName());
+                System.out.println("Padre: " + parentName);
+                if(fileFCBV.getType() == 1){
+                    System.out.println("Tipo de archivo: " + "es un directorio");
+                    System.out.println("Dueño del directorio: " + usName);
+                    System.out.println("Grupo al que pertenece: " + groupNameFC);
+                    System.out.println("Permisos de usuario: " + userPerm2 + "permisos de grupo: " + groupPerm2);
+                    System.out.println("Bytes utilizados: " + fileFCBV.getSizeUsed());
+                    System.out.println("Bloque inicial: " + fileFCBV.getStartBlock());
+                    System.out.println("Cantidad de bloques" + fileFCBV.getBlockCount());
+                    System.out.println("Fecha de creación: " + formatDate(fileFCBV.getCreationDate()));
+                    System.out.println("Fecha de modificacion: " + formatDate(fileFCBV.getModificationDate()));
+                    System.out.println("Directorio padre: " + parentName);                 
+                    break;
+                }
+                System.out.println("Tipo de archivo: " + "es un archivo");
+                System.out.println("Dueño del archivo: " + usName);
+                System.out.println("Grupo al que pertenece: " + groupNameFC);
+                System.out.println("Permisos de usuario: " + userPerm2 + "permisos de grupo: " + groupPerm2);
+                System.out.println("Tamano utilizado: " + fileFCBV.getSizeUsed());
+                System.out.println("Bloque inicial: " + fileFCBV.getStartBlock());
+                System.out.println("Cantidad de bloques" + fileFCBV.getBlockCount());
+                System.out.println("Fecha de creación: " + formatDate(fileFCBV.getCreationDate()));
+                System.out.println("Fecha de modificacion: " + formatDate(fileFCBV.getModificationDate()));                
+                System.out.println("El archivo se encuentra " + isOpen);
+                System.out.println("Archivo padre: " + parentName);
+                break;
+                
+            case "infofs":
+                long totalBytesFS = fs.mbr.volumeSize;
+                long metaBytesFS = fs.superBlock.getDataZoneStart();
+                long dataUsedBytesFS = fs.bitmapBlocks.countUsedBlocks() * 512;
+                long usedBytesFS = metaBytesFS + dataUsedBytesFS;
+                long freeBytesFS = totalBytesFS - usedBytesFS;
+                System.out.println("Nombre del FileSystem: " + fs.mbr.fsFileName);
+                System.out.println("Tamaño: " + (totalBytesFS / (1024 * 1024)) + " Mb");
+                System.out.println("Espacio utilizado: " + (usedBytesFS / 1024) + " KB");
+                System.out.println("Disponible: " + (freeBytesFS / 1024) + " KB");
+                break;
+                
+
+                
             case "note":             
                 if (parts.length < 2) {
                     System.out.println("Ingrese el nombre del archivo");
@@ -644,7 +1022,7 @@ public class Terminal {
 
                     if (userIndex == fileFCB.getOwnerId()) {
                         permissions2 = ownerPerm;
-                    } else if (currentUser.getGroupId() == fileFCB.getGroupId()) {
+                    } else if (userBelongsToGroup(userIndex, fileFCB.getGroupId())) {
                         permissions2 = groupPerm;
                     } else {
                         System.out.println("No eres dueño ni perteneces al grupo del archivo");
@@ -677,11 +1055,115 @@ public class Terminal {
                 }
                 break;
                 
+                
+            
+                
             
         }
         
         
         return 0;
     }
+
+    private void chownRecursive(int dirFcbId, int newOwnerId) {
+        FCB dirFCB = fs.getFCB(dirFcbId);
+        dirFCB.setOwnerId(newOwnerId);
+        fs.writeFCB(dirFCB, dirFcbId);
+
+        // Leer entradas del directorio
+        byte[] dirData = fs.readFileData(dirFCB);
+        int numEntries = dirFCB.getSizeUsed();
+
+        for (int i = 0; i < numEntries; i++) {
+            byte[] entryContent = Arrays.copyOfRange(dirData, i * 24, i * 24 + 24);
+            DirectoryEntry entry = DirectoryEntry.fromBytes(entryContent);
+            String name = entry.getName();
+            System.out.println("Nombre de archivo" + name);
+
+
+            FCB childFCB = fs.getFCB(entry.getFcbId());
+            childFCB.setOwnerId(newOwnerId);
+            fs.writeFCB(childFCB, entry.getFcbId());
+
+            // En caso de ser directorio lo volvemos a ejecutar para la 
+            // recursividad 
+            if (childFCB.getType() == 1) {
+                chownRecursive(entry.getFcbId(), newOwnerId);
+            }
+        }
+    }
+
+    private void chgrpRecursive(int dirFcbId, int newGroupId) {
+        FCB dirFCB = fs.getFCB(dirFcbId);
+        dirFCB.setGroupId(newGroupId);
+        fs.writeFCB(dirFCB, dirFcbId);
+
+        // Leer entradas del directorio
+        byte[] dirData = fs.readFileData(dirFCB);
+        int numEntries = dirFCB.getSizeUsed();
+
+        for (int i = 0; i < numEntries; i++) {
+            byte[] entryContent= Arrays.copyOfRange(dirData, i * 24, i * 24 + 24);
+            DirectoryEntry entry = DirectoryEntry.fromBytes(entryContent);
+            String name = entry.getName();
+            System.out.println("Nombre de archivo" + name);
+
+
+            FCB childFCB = fs.getFCB(entry.getFcbId());
+            childFCB.setGroupId(newGroupId);
+            fs.writeFCB(childFCB, entry.getFcbId());
+
+            // En caso de ser directorio lo volvemos a ejecutar para la 
+            // recursividad 
+            if (childFCB.getType() == 1) {
+                chgrpRecursive(entry.getFcbId(), newGroupId);
+            }
+        }
+    }
     
+    private void lsRecursive(int dirFCBFF, String path){
+        FCB dirFCB = fs.getFCB(dirFCBFF);
+        System.out.println(path + ":");
+
+        byte[] dirData = fs.readFileData(dirFCB);
+        int numEntries = dirFCB.getSizeUsed();
+
+        for (int i = 0; i < numEntries; i++) {
+            byte[] entryContent= Arrays.copyOfRange(dirData, i * 24, i * 24 + 24);
+            DirectoryEntry entryFF2 = DirectoryEntry.fromBytes(entryContent);
+            int fcbIDL = entryFF2.getFcbId();
+            FCB fcLs = fs.getFCB(fcbIDL);
+            if(fcLs.getType() == 1) {
+                System.out.println("Directorio " + entryFF2.getName());
+            } else{
+                System.out.println("Archivo " + entryFF2.getName());
+            } 
+
+            FCB childFCB = fs.getFCB(entryFF2.getFcbId());
+            if (childFCB.getType() == 1) {
+                lsRecursive(entryFF2.getFcbId(), path + "/" + entryFF2.getName());
+            }
+        }
+        System.out.println();
+    }
+
+    private String buildPath(FCB dir) {
+        if (dir.getParentId() == -1) return "";
+        return buildPath(fs.getFCB(dir.getParentId())) + "/" + dir.getName();
+    }
+
+    private boolean userBelongsToGroup(int userIdx, int groupIdx) {
+        Group g = fs.getGroup(groupIdx);
+        for (int m : g.getMembers()) {
+            if (m == userIdx) return true;
+        }
+        return false;
+    }
+
+    private String formatDate(long millis) {
+        SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
+        return sdf.format(new Date(millis));
+    }
+
 }
+

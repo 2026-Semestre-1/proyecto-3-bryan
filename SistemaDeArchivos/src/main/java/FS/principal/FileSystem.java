@@ -30,7 +30,7 @@ public class FileSystem {
     }
     
     public Group getGroup(int index){
-        long offset = superBlock.getUsersStart() + (index * 55);
+        long offset = superBlock.getGroupsStart() + (index * 55);
         byte[] data = disk.read(offset, 55);
         return Group.fromBytes(data);
     }    
@@ -52,7 +52,7 @@ public class FileSystem {
             }
         }
         
-        Mbr mbr = new Mbr("miFS", sizeBytes, 0);
+        this.mbr = new Mbr("miFS", sizeBytes, 0);
         long blockSize = 512; // Lo pongo así por si lo cambio
         SuperBlock superBlock = new SuperBlock(sizeBytes, blockSize);
 
@@ -94,7 +94,7 @@ public class FileSystem {
         
         
         Disk disk = new Disk(fileName);
-        disk.write(0, mbr.toBytes());
+        disk.write(0, this.mbr.toBytes());
         disk.write(offsetSuperBlock, superBlock.toBytes());
         
         // Creamos los bitmaps para los bloques y los archivos abiertos
@@ -121,7 +121,7 @@ public class FileSystem {
         (byte) 1,
         0,
         0,
-        FCB.grantPerm(7,0),
+        FCB.grantPerm(7,5),
         0,
         rootBlock,
         1,
@@ -161,7 +161,7 @@ public class FileSystem {
             (byte) 1,
             0,
             0,
-            FCB.grantPerm(7,0),
+            FCB.grantPerm(7,5),
             0,
             homeRootBlock,
             1,

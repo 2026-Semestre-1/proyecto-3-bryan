@@ -52,6 +52,10 @@ public class Bitmap {
         
     }
     
+    public int countUsedBlocks() {
+        return bitmap.cardinality();
+    }
+
     public int findFreeConsecutiveBlocks(int needed) {
         int total = bitmap.length(); 
         for (int i = 0; i <= total - needed; i++) {
