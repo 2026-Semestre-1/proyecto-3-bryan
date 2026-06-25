@@ -56,6 +56,12 @@ public class Bitmap {
         return bitmap.cardinality();
     }
 
+    public void freeBlocks(int start, int count) {
+        for (int i = start; i < start + count; i++) {
+            bitmap.set(i, false);
+        }
+    }
+
     public int findFreeConsecutiveBlocks(int needed) {
         int total = bitmap.length(); 
         for (int i = 0; i <= total - needed; i++) {
