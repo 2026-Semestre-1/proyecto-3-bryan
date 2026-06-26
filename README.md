@@ -3,6 +3,6 @@
 ## Integrantes:
 ### Bryan Londoño Marchena - 2022233102
 
-### 2
+### Estado del proyecto: 2
 ### Enlace del video: (Si esto fue solicitado)
 
