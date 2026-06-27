@@ -63,7 +63,7 @@ public class Bitmap {
     }
 
     public int findFreeConsecutiveBlocks(int needed) {
-        int total = bitmap.length(); 
+        int total = this.size; 
         for (int i = 0; i <= total - needed; i++) {
             boolean free = true;
             for (int j = 0; j < needed; j++) {

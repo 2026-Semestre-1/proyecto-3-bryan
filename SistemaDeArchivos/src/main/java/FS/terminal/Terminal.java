@@ -33,9 +33,11 @@ public class Terminal {
     
     public Terminal(FileSystem FS){
         this.fs = FS;
-        this.currentUser = fs.getUser(0);
-        this.currentDirectory = fs.getFCB(2);
-        this.currentDirectoryId = 2;
+        if (fs.isFormatted()) {
+            this.currentUser = fs.getUser(0);
+            this.currentDirectory = fs.getFCB(2);
+            this.currentDirectoryId = 2;
+        }
     }    
     
    
@@ -52,10 +54,36 @@ public class Terminal {
     
     public void setOut(PrintStream out) { this.out = out; }
 
+    public volatile boolean lessMode = false;
+    public volatile boolean passwordMode = false;
     private Consumer<FileSystem> newTerminalHandler;
+    private Runnable clearHandler;
+    private Runnable flushHandler;
+    private Runnable exitHandler;
 
     public void setNewTerminalHandler(Consumer<FileSystem> handler) {
         this.newTerminalHandler = handler;
+    }
+
+    public void setClearHandler(Runnable handler) {
+        this.clearHandler = handler;
+    }
+
+    public void setFlushHandler(Runnable handler) {
+        this.flushHandler = handler;
+    }
+
+    public void setExitHandler(Runnable handler) {
+        this.exitHandler = handler;
+    }
+
+    public String readPassword(Scanner scan, String prompt) {
+        out.print(prompt);
+        if (flushHandler != null) flushHandler.run();
+        passwordMode = true;
+        String pwd = scan.nextLine().trim();
+        passwordMode = false;
+        return pwd;
     }
 
     public void start() throws IOException{
@@ -63,6 +91,39 @@ public class Terminal {
     }
 
     public void start(Scanner scanner) throws IOException{
+        if (!fs.isFormatted()) {
+            out.println("Disco sin formato. Use: format <tam> <unidad>  ej: format 2 mb");
+            while (true) {
+                out.print("formateo> ");
+                String line = scanner.nextLine().trim();
+                if (line.isEmpty()) continue;
+                String[] parts = line.split(" ");
+                if (parts[0].equals("format") && parts.length >= 3) {
+                    try {
+                        long tam = Long.parseLong(parts[1]);
+                        String unidad = parts[2];
+                        String base = "DiscoDuro";
+                        int c = 0;
+                        String name = base + ".fs";
+                        while (new java.io.File(name).exists()) name = base + (++c) + ".fs";
+                        fs.createDisk(tam, unidad, name, "temp");
+                        fs.loadDisk(name);
+                        String pass = readPassword(scanner, "Password para root: ");
+                        if (pass.isEmpty()) pass = "root";
+                        fs.formatDisk(pass);
+                        this.currentUser = fs.getUser(0);
+                        this.currentDirectory = fs.getFCB(2);
+                        this.currentDirectoryId = 2;
+                        out.println("Disco '" + name + "' formateado (" + tam + " " + unidad + ").");
+                        break;
+                    } catch (Exception e) {
+                        out.println("Error: " + e);
+                    }
+                } else {
+                    out.println("Use: format <tam> <unidad>  ej: format 2 mb");
+                }
+            }
+        }
         while(true){
             out.print(currentUser.getUserName() + "@miFS: ");
             
@@ -87,8 +148,43 @@ public class Terminal {
     public int executeCommand(String command, String[] parts, Scanner scan) throws IOException{
         switch(command.toLowerCase()){
             case "exit":
-                out.println("Hola");
+                out.println("Saliendo...");
+                if (exitHandler != null) exitHandler.run();
                 return 2;
+
+            case "clear":
+                if (clearHandler != null) {
+                    clearHandler.run();
+                }
+                return 0;
+
+            case "format":
+                if (parts.length >= 2 && parts[1].equals("?")) {
+                    out.println("Crea/formatea el disco virtual y el sistema de archivos.");
+                    out.println("Uso: format <tam> <unidad>   ej: format 2 mb");
+                    out.println("     format                         (usa tamaño actual)");
+                    break;
+                }
+                out.println("ADVERTENCIA: Esto borrara todos los datos.");
+                out.print("Confirme escribiendo 'si': ");
+                String conf2 = scan.nextLine().trim();
+                if (conf2.equals("si")) {
+                    String pass2 = currentUser != null ? currentUser.getPassword() : "root";
+                    if (parts.length >= 3) {
+                        long tam2 = Long.parseLong(parts[1]);
+                        String uni2 = parts[2];
+                        fs.createDisk(tam2, uni2, fs.diskFileName, pass2);
+                        fs.loadDisk(fs.diskFileName);
+                    }
+                    fs.formatDisk(pass2);
+                    currentUser = fs.getUser(0);
+                    currentDirectory = fs.getFCB(2);
+                    currentDirectoryId = 2;
+                    out.println("Disco formateado.");
+                } else {
+                    out.println("Cancelado.");
+                }
+                break;
 
             case "newterm":
                 if (newTerminalHandler != null) {
@@ -104,8 +200,7 @@ public class Terminal {
                 out.println("Nombre de usuario: " + userName);
                 out.println("Ingrese su nombre completo por favor: " );
                 String fullName = scan.nextLine().trim();
-                out.println("Cree una contrasena: " );
-                String password = scan.nextLine().trim();    
+                String password = readPassword(scan, "Cree una contrasena: ");
                 out.println("Esta seguro que desea crear la cuenta ingrese (y)/(n): " );
                 String confirmation = scan.nextLine().trim();
                 if (confirmation.toLowerCase().equals("y")){
@@ -184,24 +279,59 @@ public class Terminal {
                 }
                 break;
 
-                
+            case "adduser":
+                if (parts.length < 3) {
+                    out.println("Uso: adduser <usuario> <grupo>");
+                    break;
+                }
+                String auUser = parts[1];
+                String auGroup = parts[2];
+                int auUserIdx = fs.findUser(auUser);
+                if (auUserIdx == -1) {
+                    out.println("Usuario no encontrado");
+                    break;
+                }
+                int auGroupIdx = fs.findGroup(auGroup);
+                if (auGroupIdx == -1) {
+                    out.println("Grupo no encontrado");
+                    break;
+                }
+                Group auGrp = fs.getGroup(auGroupIdx);
+                int auCurrIdx = fs.findUser(currentUser.getUserName());
+                boolean isRoot = currentUser.getUserName().equals("root");
+                boolean isGroupOwner = (auGrp.getMembers()[0] == auCurrIdx);
+                if (!isRoot && !isGroupOwner) {
+                    out.println("Solo root o el dueno del grupo pueden agregar usuarios");
+                    break;
+                }
+                int freeSlot = -1;
+                for (int i = 0; i < auGrp.getMembers().length; i++) {
+                    if (auGrp.getMembers()[i] == -1) {
+                        freeSlot = i;
+                        break;
+                    }
+                }
+                if (freeSlot == -1) {
+                    out.println("El grupo esta lleno (max 10 miembros)");
+                    break;
+                }
+                auGrp.getMembers()[freeSlot] = auUserIdx;
+                fs.writeGroup(auGrp, auGroupIdx);
+                out.println("Usuario " + auUser + " agregado al grupo " + auGroup);
+                break;
 
-                
             case "passwd":
                 if (parts.length == 1){
                     // Si nos cambiamos la contraseña a nosotros mismos
                     out.println("Vamos a cambiar nuestro password");
                     int xx = 0;
                     while(xx < 3){ 
-                        out.println("Escriba su password");
-                        String p1 = scan.nextLine().trim();
+                        String p1 = readPassword(scan, "Escriba su password: ");
                         if (this.currentUser.getPassword().equals(p1)){
                             int xx2 = 0;
                             while(xx2 < 3) {
-                                out.println("Ingrese la nueva contraseña");
-                                String p2 = scan.nextLine().trim();
-                                out.println("Confirme la nueva contraseña por favor");                           
-                                String p3 = scan.nextLine().trim();
+                                String p2 = readPassword(scan, "Ingrese la nueva contraseña: ");
+                                String p3 = readPassword(scan, "Confirme la nueva contraseña: ");
                                 if (p2.equals(p3)){
                                     this.currentUser.setPassword(p3);
                                     int userIndex = fs.findUser(this.currentUser.getUserName());
@@ -224,16 +354,13 @@ public class Terminal {
                     out.println("Vamos a cambiar el password");
                     int xx3 = 0;
                     while(xx3 < 3){
-                        out.println("Ingrese la contrasena actual del usuario");
-                        String p3 = scan.nextLine().trim();
+                        String p3 = readPassword(scan, "Ingrese su contrasena (root): ");
                         int userIndex2 = fs.findUser(this.currentUser.getUserName());
                         if(fs.confirmPasswordUser(p3, userIndex2)) {
                             int xx4 = 0;
                                 while(xx4 < 3){
-                                out.println("Ahora ingrese la nueva contrasena");
-                                String p4 = scan.nextLine().trim();
-                                out.println("Vuelva a ingresar la nueva contrasena");
-                                String p5 = scan.nextLine().trim();                                
+                                String p4 = readPassword(scan, "Ahora ingrese la nueva contrasena: ");
+                                String p5 = readPassword(scan, "Vuelva a ingresar la nueva contrasena: ");                                
                                 if(p4.equals(p5)){
                                     out.println("Se ha cambiado la contrasena");
                                     int userIndex3 = fs.findUser(userToChange);
@@ -258,10 +385,9 @@ public class Terminal {
                         break;
                     }
                     // CASO SU SOLO
-                    out.println("Por favor ingrese la contraseña de root: ");
                     int ff = 0;
                     while(ff < 3){
-                        String confirmPassword = scan.nextLine().trim();
+                        String confirmPassword = readPassword(scan, "Por favor ingrese la contraseña de root: ");
                         if(fs.confirmPasswordUser(confirmPassword, 0)){
                             this.currentUser = fs.getUser(0);
                             this.currentDirectory = fs.getFCB(2);
@@ -284,10 +410,9 @@ public class Terminal {
                     }
                     int res = fs.findUser(user);  // CASO CON SU y nombre a la par
                     if(res != -1){
-                        out.println("Por favor ingrese la contraseña: ");
                         int ff = 0;
                         while(ff < 3){
-                            String confirmPassword = scan.nextLine().trim();
+                            String confirmPassword = readPassword(scan, "Por favor ingrese la contraseña: ");
                             if(fs.confirmPasswordUser(confirmPassword, res)){
                                 this.currentUser = fs.getUser(res);
                                 this.currentDirectory = fs.getFCB(this.currentUser.getHomeDirId());
@@ -616,12 +741,18 @@ public class Terminal {
                         // ver permisos
                         if (!currentUser.getUserName().equals("root")) {
                             int currentIdx = fs.findUser(currentUser.getUserName());
-                            if (currentIdx != fcbRM.getOwnerId()) {
+                            int ownerPerm = FCB.getOwnerPerm(fcbRM.getPermissions());
+                            int groupPerm = FCB.getGroupPerm(fcbRM.getPermissions());
+                            int perms;
+                            if (currentIdx == fcbRM.getOwnerId()) {
+                                perms = ownerPerm;
+                            } else if (userBelongsToGroup(currentIdx, fcbRM.getGroupId())) {
+                                perms = groupPerm;
+                            } else {
                                 out.println("No eres root ni dueño");
                                 return 0;
                             }
-                            int ownerPerm = FCB.getOwnerPerm(fcbRM.getPermissions());
-                            if ((ownerPerm & 2) == 0) {
+                            if ((perms & 2) == 0) {
                                 out.println("No tienes permiso de escritura");
                                 return 0;
                             }
@@ -684,12 +815,18 @@ public class Terminal {
                 FCB fileFCBMV = fs.getFCB(fcbIndexMV);
                 if (!currentUser.getUserName().equals("root")) {
                     int currentIdx = fs.findUser(currentUser.getUserName());
-                    if (currentIdx != fileFCBMV.getOwnerId()) {
+                    int ownerPerm = FCB.getOwnerPerm(fileFCBMV.getPermissions());
+                    int groupPerm = FCB.getGroupPerm(fileFCBMV.getPermissions());
+                    int perms;
+                    if (currentIdx == fileFCBMV.getOwnerId()) {
+                        perms = ownerPerm;
+                    } else if (userBelongsToGroup(currentIdx, fileFCBMV.getGroupId())) {
+                        perms = groupPerm;
+                    } else {
                         out.println("No eres root ni dueño del archivo");
                         return 0;
                     }
-                    int ownerPerm = FCB.getOwnerPerm(fileFCBMV.getPermissions());
-                    if ((ownerPerm & 2) == 0) {
+                    if ((perms & 2) == 0) {
                         out.println("No tienes permiso de escritura");
                         return 0;
                     }
@@ -794,37 +931,84 @@ public class Terminal {
                 break;
                 
             case "cd":
-                boolean foundDir = false;
+                if (parts.length < 2) {
+                    out.println("Uso: cd <directorio>");
+                    break;
+                }
                 if(!parts[1].equals("..")){
                     currentDirectory = fs.getFCB(currentDirectoryId);
                     long data = fs.superBlock.getDataZoneStart();
                     int directionDirec = currentDirectory.getStartBlock();
                     long offsetData = data + (directionDirec * 512);
+                    boolean foundDir = false;
+                    int targetFcbId = -1;
                     for(int p = 0; p < currentDirectory.getSizeUsed(); p++){
                         byte[] dataEntry = fs.disk.read(offsetData + (p * 24), 24);
                         DirectoryEntry var = DirectoryEntry.fromBytes(dataEntry);
                         int fcbCD = var.getFcbId();
                         if(var.getName().equals(parts[1]) && fs.getFCB(fcbCD).getType() == 1){
-                            currentDirectoryId = var.getFcbId();
-                            currentDirectory = fs.getFCB(currentDirectoryId);
+                            targetFcbId = var.getFcbId();
                             foundDir = true;
                             break;
                         }
                     }
+                    if (!foundDir) {
+                        out.println("No se encontro el directorio");
+                        break;
+                    }
+                    FCB targetDir = fs.getFCB(targetFcbId);
+                    if (!currentUser.getUserName().equals("root")) {
+                        int userIdx = fs.findUser(currentUser.getUserName());
+                        if (userIdx == targetDir.getOwnerId()) {
+                            if ((FCB.getOwnerPerm(targetDir.getPermissions()) & 1) == 0) {
+                                out.println("Permiso denegado: no tienes permiso de ejecucion");
+                                break;
+                            }
+                        } else if (userBelongsToGroup(userIdx, targetDir.getGroupId())) {
+                            if ((FCB.getGroupPerm(targetDir.getPermissions()) & 1) == 0) {
+                                out.println("Permiso denegado: no tienes permiso de ejecucion");
+                                break;
+                            }
+                        } else {
+                            out.println("Permiso denegado: no eres dueno ni perteneces al grupo");
+                            break;
+                        }
+                    }
+                    currentDirectoryId = targetFcbId;
+                    currentDirectory = targetDir;
                 } else {
                     if(currentDirectory.getParentId() != -1){
+                        FCB parentDir = fs.getFCB(currentDirectory.getParentId());
+                        if (!currentUser.getUserName().equals("root")) {
+                            int userIdx = fs.findUser(currentUser.getUserName());
+                            if (userIdx == parentDir.getOwnerId()) {
+                                if ((FCB.getOwnerPerm(parentDir.getPermissions()) & 1) == 0) {
+                                    out.println("Permiso denegado: no tienes permiso de ejecucion");
+                                    break;
+                                }
+                            } else if (userBelongsToGroup(userIdx, parentDir.getGroupId())) {
+                                if ((FCB.getGroupPerm(parentDir.getPermissions()) & 1) == 0) {
+                                    out.println("Permiso denegado: no tienes permiso de ejecucion");
+                                    break;
+                                }
+                            } else {
+                                out.println("Permiso denegado: no eres dueno ni perteneces al grupo");
+                                break;
+                            }
+                        }
                         currentDirectoryId = currentDirectory.getParentId();
-                        currentDirectory = fs.getFCB(currentDirectoryId);
-                        foundDir = true;
+                        currentDirectory = parentDir;
+                    } else {
+                        out.println("Ya estas en la raiz");
                     }
-                }
-                if (!foundDir) {
-                    out.println("No se encontro el directorio");
                 }
                 break;
             
             case "whereis":
-                // Empezamos buscando de raiz SIEMPRE / 
+                if (parts.length < 2) {
+                    out.println("Uso: whereis <archivo>");
+                    break;
+                }
                 whereIs(0, "", parts[1]);
                 break;
                 
@@ -963,12 +1147,49 @@ public class Terminal {
         
             case "touch":
                 out.println("Vamos a hacer un touch");
-                
-                if(parts.length == 2){
-                    
-                    String nameFCB3 = parts[1];
-                    
-                    // Validacion del nombre
+                if (parts.length != 2){
+                    out.println("Uso: touch <nombre>");
+                    break;
+                }
+                String nameFCB3 = parts[1];
+                FCB targetDirTouch;
+                int targetDirIdTouch;
+
+                if (nameFCB3.contains("/")) {
+                    String tempPath = nameFCB3;
+                    if (tempPath.endsWith("/")) {
+                        out.println("Nombre de archivo invalido");
+                        break;
+                    }
+                    int lastSlash = tempPath.lastIndexOf("/");
+                    String fileNameTouch = tempPath.substring(lastSlash + 1);
+                    String parentPathTouch = lastSlash == 0 ? "/" : tempPath.substring(0, lastSlash);
+                    int curId = parentPathTouch.startsWith("/") ? 0 : currentDirectoryId;
+                    targetDirIdTouch = pathHandler(curId, parentPathTouch);
+                    if (targetDirIdTouch == -1) {
+                        out.println("Directorio padre no encontrado");
+                        break;
+                    }
+                    targetDirTouch = fs.getFCB(targetDirIdTouch);
+                    nameFCB3 = fileNameTouch;
+                    // Validar que no exista ya en el directorio destino
+                    long offTouch = fs.superBlock.getDataZoneStart() + (targetDirTouch.getStartBlock() * 512);
+                    boolean exists = false;
+                    for (int p = 0; p < targetDirTouch.getSizeUsed(); p++) {
+                        byte[] de = fs.disk.read(offTouch + (p * 24), 24);
+                        if (DirectoryEntry.fromBytes(de).getName().equals(nameFCB3)) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (exists) {
+                        out.println("El archivo ya existe");
+                        break;
+                    }
+                } else {
+                    targetDirTouch = this.currentDirectory;
+                    targetDirIdTouch = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
+                    // Validacion del nombre en directorio actual
                     long data = fs.superBlock.getDataZoneStart();
                     int directionDirec = this.currentDirectory.getStartBlock();
                     long offsetData = data + (directionDirec * 512);
@@ -980,49 +1201,33 @@ public class Terminal {
                             return 0;
                         } 
                     }
+                }
 
-                    //Busco FCB libre
-                   
-                    int freeHoleFCB = fs.freeslotFCB();
-                    if (freeHoleFCB == -1 ){
-                        out.println("No queda espacio para más FCBS");
-                        return 0;
-                    }                    
-                    
-                    // Buscamos un bloque libre de 512
-                    int newBlockT = fs.bitmapBlocks.findFreeBit();
-                    fs.bitmapBlocks.markBusy(newBlockT);
-                    fs.disk.write(fs.superBlock.getBitmapBlocksStart(), fs.bitmapBlocks.toBytes());
-
-                    
-                    
-                    int idUserFCB3 = fs.findUser(currentUser.getUserName());
-                    int idGroupFCB3 = currentUser.getGroupId();
-                    int parentID3 = fs.findFCBID(currentDirectory.getName(), currentDirectory.getParentId());
-                    // Creo FCB (Solo memo)
-                    FCB fcb3 = new FCB(nameFCB3, (byte)0, idUserFCB3, idGroupFCB3, FCB.grantPerm(6,4), 0, newBlockT, 1, System.currentTimeMillis(),
-                    System.currentTimeMillis(), (byte)0 ,parentID3);
-                    
-                    
-                    // Lo guardamos en disco
-                    fs.writeFCB(fcb3, freeHoleFCB);
-                    
-                    // Calculo la dirección del directorio papa
-                    long directoryDirectFather = fs.superBlock.getDataZoneStart() + (currentDirectory.getStartBlock() * 512) + (currentDirectory.getSizeUsed() * 24);
-                    DirectoryEntry directoryEntry3 = new DirectoryEntry(nameFCB3,freeHoleFCB);
-                    fs.disk.write(directoryDirectFather, directoryEntry3.toBytes());
-                    
-                    currentDirectory.setSizeUsed((currentDirectory.getSizeUsed()+1));
-                    fs.writeFCB(currentDirectory, parentID3);
-                    
-                    
-                } else if (parts.length == 1){
-                    out.println("Ingrese el nombre del archivo");
+                int freeHoleFCB = fs.freeslotFCB();
+                if (freeHoleFCB == -1 ){
+                    out.println("No queda espacio para más FCBS");
                     return 0;
-                } else {
-                    out.println("Ingrese correctamente el comando");
+                }                    
+                
+                int newBlockT = fs.bitmapBlocks.findFreeBit();
+                if (newBlockT == -1) {
+                    out.println("No hay bloques libres");
                     return 0;
                 }
+                fs.bitmapBlocks.markBusy(newBlockT);
+                fs.disk.write(fs.superBlock.getBitmapBlocksStart(), fs.bitmapBlocks.toBytes());
+
+                int idUserFCB3 = fs.findUser(currentUser.getUserName());
+                int idGroupFCB3 = currentUser.getGroupId();
+                FCB fcb3 = new FCB(nameFCB3, (byte)0, idUserFCB3, idGroupFCB3, FCB.grantPerm(6,4), 0, newBlockT, 1, System.currentTimeMillis(),
+                System.currentTimeMillis(), (byte)0, targetDirIdTouch);
+                fs.writeFCB(fcb3, freeHoleFCB);
+
+                long dirOffsetTouch = fs.superBlock.getDataZoneStart() + (targetDirTouch.getStartBlock() * 512) + (targetDirTouch.getSizeUsed() * 24);
+                DirectoryEntry dirEntryTouch = new DirectoryEntry(nameFCB3, freeHoleFCB);
+                fs.disk.write(dirOffsetTouch, dirEntryTouch.toBytes());
+                targetDirTouch.setSizeUsed(targetDirTouch.getSizeUsed() + 1);
+                fs.writeFCB(targetDirTouch, targetDirIdTouch);
                 break;
                 
             case "cat":
@@ -1031,21 +1236,23 @@ public class Terminal {
                     return 0;
                 }
                 String fileName2 = parts[1];                
-                
-                // Busco el archivo y lo trato de leer en el directorio actual
-                long data2 = fs.superBlock.getDataZoneStart();
-                int blockDir2 = currentDirectory.getStartBlock();
-                long offset2 = data2 + (blockDir2 * 512);
-
                 int fcbIndex2 = -1;
-                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
-                    byte[] entryData = fs.disk.read(offset2 + (i * 24), 24);
-                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
-                    if (entry.getName().equals(fileName2)) {
-                        fcbIndex2 = entry.getFcbId();
-                        break;
+                if (fileName2.contains("/")) {
+                    int curId = fileName2.startsWith("/") ? 0 : currentDirectoryId;
+                    fcbIndex2 = findFileByPath(curId, fileName2);
+                } else {
+                    long data2 = fs.superBlock.getDataZoneStart();
+                    int blockDir2 = currentDirectory.getStartBlock();
+                    long offset2 = data2 + (blockDir2 * 512);
+                    for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                        byte[] entryData = fs.disk.read(offset2 + (i * 24), 24);
+                        DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                        if (entry.getName().equals(fileName2)) {
+                            fcbIndex2 = entry.getFcbId();
+                            break;
+                        }
                     }
-                } 
+                }
                 if (fcbIndex2 == -1){
                     out.println("Archivo no encontrado");
                     return 0;
@@ -1100,18 +1307,21 @@ public class Terminal {
                 }
                 String lessName = parts[1];
 
-                // Buscamos archivo para leerlo
-                long dataLess = fs.superBlock.getDataZoneStart();
-                int blockLess = currentDirectory.getStartBlock();
-                long offsetLess = dataLess + (blockLess * 512);
-
                 int fcbLess = -1;
-                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
-                    byte[] entryData = fs.disk.read(offsetLess + (i * 24), 24);
-                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
-                    if (entry.getName().equals(lessName)) {
-                        fcbLess = entry.getFcbId();
-                        break;
+                if (lessName.contains("/")) {
+                    int curId = lessName.startsWith("/") ? 0 : currentDirectoryId;
+                    fcbLess = findFileByPath(curId, lessName);
+                } else {
+                    long dataLess = fs.superBlock.getDataZoneStart();
+                    int blockLess = currentDirectory.getStartBlock();
+                    long offsetLess = dataLess + (blockLess * 512);
+                    for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                        byte[] entryData = fs.disk.read(offsetLess + (i * 24), 24);
+                        DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                        if (entry.getName().equals(lessName)) {
+                            fcbLess = entry.getFcbId();
+                            break;
+                        }
                     }
                 }
                 if (fcbLess == -1) {
@@ -1121,12 +1331,47 @@ public class Terminal {
 
                 // obtenemos el fcb del archivo
                 FCB fcbLessFCB = fs.getFCB(fcbLess);
+                // Resolver enlace simbolico
+                if (fcbLessFCB.getType() == 2) {
+                    byte[] linkDataLess = fs.readFileData(fcbLessFCB);
+                    String linkPathLess = new String(linkDataLess).trim();
+                    int realIdLess = findFileByPath(0, linkPathLess);
+                    if (realIdLess == -1) {
+                        out.println("El enlace apunta a un archivo inexistente");
+                        return 0;
+                    }
+                    fcbLess = realIdLess;
+                    fcbLessFCB = fs.getFCB(realIdLess);
+                }
+                // ver permisos de lectura
+                if (!currentUser.getUserName().equals("root")) {
+                    int userIdx = fs.findUser(currentUser.getUserName());
+                    int ownerPerm = FCB.getOwnerPerm(fcbLessFCB.getPermissions());
+                    int groupPerm = FCB.getGroupPerm(fcbLessFCB.getPermissions());
+                    int perms;
+                    if (userIdx == fcbLessFCB.getOwnerId()) {
+                        perms = ownerPerm;
+                    } else if (userBelongsToGroup(userIdx, fcbLessFCB.getGroupId())) {
+                        perms = groupPerm;
+                    } else {
+                        out.println("No eres dueño ni perteneces al grupo del archivo");
+                        return 0;
+                    }
+                    if ((perms & 4) == 0) {
+                        out.println("No tienes permiso de lectura");
+                        return 0;
+                    }
+                }
+                // Marcar archivo como abierto
+                fs.openFile(fcbLess, fcbLessFCB);
+
                 byte[] lessData = fs.readFileData(fcbLessFCB);
                 // Todo el cuerpo del archivo por linea
                 String[] lessLines = new String(lessData, 0, fcbLessFCB.getSizeUsed()).split("\n", -1);
                 int lineIndex = 0;
 
                 // Simple recorrido para ir linea por linea, hacia atras o con una pag completa que serian 20 lineas
+                lessMode = true;
                 while (true) {
                     for (int i = lineIndex; i < lessLines.length && i < lineIndex + 20; i++) {
                         out.println(lessLines[i]);
@@ -1136,9 +1381,7 @@ public class Terminal {
                     String input = scan.nextLine();
                     if (input.equals("q")) {
                         break;
-                    } else if (input.isEmpty()) {
-                        if (lineIndex < lessLines.length - 1) lineIndex++;
-                    } else if (input.equals(" ") || input.equals("  ")) {
+                    } else if (input.equals(" ") || input.isEmpty()) {
                         lineIndex = Math.min(lineIndex + 20, lessLines.length - 1);
                     } else if (input.equals("-")) {
                         if (lineIndex > 0) {
@@ -1146,6 +1389,9 @@ public class Terminal {
                         }
                     }
                 }
+                lessMode = false;
+                // Marcar archivo como cerrado
+                fs.closeFile(fcbLess);
                 break;
                 
                 
@@ -1177,17 +1423,33 @@ public class Terminal {
                 }
 
                 // Buscamos el archivo en el directorio actual
-                long dataC = fs.superBlock.getDataZoneStart();
-                int blockDirC = currentDirectory.getStartBlock();
-                long offsetC = dataC + (blockDirC * 512);
-
                 int fcbIndexC = -1;
-                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
-                    byte[] entryDataC = fs.disk.read(offsetC + (i * 24), 24);
-                    DirectoryEntry entryC = DirectoryEntry.fromBytes(entryDataC);
-                    if (entryC.getName().equals(fileNameChown)) {
-                        fcbIndexC = entryC.getFcbId();
-                        break;
+                if (fileNameChown.equals(".")) {
+                    fcbIndexC = currentDirectoryId;
+                } else if (fileNameChown.equals("..")) {
+                    if (currentDirectory.getParentId() == -1) {
+                        out.println("No hay directorio padre");
+                        return 0;
+                    }
+                    fcbIndexC = currentDirectory.getParentId();
+                } else if (fileNameChown.contains("/")) {
+                    int curId = fileNameChown.startsWith("/") ? 0 : currentDirectoryId;
+                    fcbIndexC = findFileByPath(curId, fileNameChown);
+                    if (fcbIndexC == -1) {
+                        out.println("Ruta no encontrada");
+                        return 0;
+                    }
+                } else {
+                    long dataC = fs.superBlock.getDataZoneStart();
+                    int blockDirC = currentDirectory.getStartBlock();
+                    long offsetC = dataC + (blockDirC * 512);
+                    for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                        byte[] entryDataC = fs.disk.read(offsetC + (i * 24), 24);
+                        DirectoryEntry entryC = DirectoryEntry.fromBytes(entryDataC);
+                        if (entryC.getName().equals(fileNameChown)) {
+                            fcbIndexC = entryC.getFcbId();
+                            break;
+                        }
                     }
                 }
                 if (fcbIndexC == -1) {
@@ -1246,19 +1508,35 @@ public class Terminal {
                 Group groupC = fs.getGroup(groupIndexG);
 
                 // Buscamos el archivo en el directorio actual
-                long dataG = fs.superBlock.getDataZoneStart();
-                int blockDirG = currentDirectory.getStartBlock();
-                long offsetG = dataG + (blockDirG * 512);
                 int fcbIndexG = -1;
-                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
-                    byte[] entryData = fs.disk.read(offsetG + (i * 24), 24);
-                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
-                    if (entry.getName().equals(fileOrDirec)) {
-                        fcbIndexG = entry.getFcbId();
-                        break;
+                if (fileOrDirec.equals(".")) {
+                    fcbIndexG = currentDirectoryId;
+                } else if (fileOrDirec.equals("..")) {
+                    if (currentDirectory.getParentId() == -1) {
+                        out.println("No hay directorio padre");
+                        return 0;
+                    }
+                    fcbIndexG = currentDirectory.getParentId();
+                } else if (fileOrDirec.contains("/")) {
+                    int curId = fileOrDirec.startsWith("/") ? 0 : currentDirectoryId;
+                    fcbIndexG = findFileByPath(curId, fileOrDirec);
+                    if (fcbIndexG == -1) {
+                        out.println("Ruta no encontrada");
+                        return 0;
+                    }
+                } else {
+                    long dataG = fs.superBlock.getDataZoneStart();
+                    int blockDirG = currentDirectory.getStartBlock();
+                    long offsetG = dataG + (blockDirG * 512);
+                    for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                        byte[] entryData = fs.disk.read(offsetG + (i * 24), 24);
+                        DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                        if (entry.getName().equals(fileOrDirec)) {
+                            fcbIndexG = entry.getFcbId();
+                            break;
+                        }
                     }
                 }
-
                 if (fcbIndexG == -1) {
                     out.println("Archivo no encontrado");
                     return 0;
@@ -1305,19 +1583,35 @@ public class Terminal {
                 String fileNameMod = parts[2];
                 
                 // Buscamos el archivo 
-                long dataMod = fs.superBlock.getDataZoneStart();
-                int blockDirMod = currentDirectory.getStartBlock();
-                long offsetMod = dataMod + (blockDirMod * 512);
                 int fcbIndexMod = -1;
-                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
-                    byte[] entryData = fs.disk.read(offsetMod + (i * 24), 24);
-                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
-                    if (entry.getName().equals(fileNameMod)) {
-                        fcbIndexMod = entry.getFcbId();
-                        break;
+                if (fileNameMod.equals(".")) {
+                    fcbIndexMod = currentDirectoryId;
+                } else if (fileNameMod.equals("..")) {
+                    if (currentDirectory.getParentId() == -1) {
+                        out.println("No hay directorio padre");
+                        return 0;
+                    }
+                    fcbIndexMod = currentDirectory.getParentId();
+                } else if (fileNameMod.contains("/")) {
+                    int curId = fileNameMod.startsWith("/") ? 0 : currentDirectoryId;
+                    fcbIndexMod = findFileByPath(curId, fileNameMod);
+                    if (fcbIndexMod == -1) {
+                        out.println("Ruta no encontrada");
+                        return 0;
+                    }
+                } else {
+                    long dataMod = fs.superBlock.getDataZoneStart();
+                    int blockDirMod = currentDirectory.getStartBlock();
+                    long offsetMod = dataMod + (blockDirMod * 512);
+                    for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                        byte[] entryData = fs.disk.read(offsetMod + (i * 24), 24);
+                        DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                        if (entry.getName().equals(fileNameMod)) {
+                            fcbIndexMod = entry.getFcbId();
+                            break;
+                        }
                     }
                 }
-
                 if (fcbIndexMod == -1) {
                     out.println("Archivo no encontrado");
                     return 0;
@@ -1348,24 +1642,44 @@ public class Terminal {
                 out.println("Archivos abiertos actualmente: " + totalOpenFiles);
                 break;
                 
-            case "viewfcb": 
+            case "viewfcb":
+                if (parts.length < 2) {
+                    out.println("Uso: viewfcb <archivo>");
+                    break;
+                }
                 out.println("Información del FCB del: " + parts[1]);
-                long dataFCBV = fs.superBlock.getDataZoneStart();
-                int blockFCBV = currentDirectory.getStartBlock();
-                long offsetFCBV = dataFCBV + (blockFCBV * 512);
                 int indexFCBV = -1;
-                for (int i = 0; i < currentDirectory.getSizeUsed(); i++){
-                    byte[] entryFCBV = fs.disk.read(offsetFCBV + (i * 24),  24);
-                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryFCBV);
-                    if (entry.getName().equals(parts[1])) {
-                        indexFCBV = entry.getFcbId();
-                        break;
-                    } 
+                if (parts[1].contains("/")) {
+                    int curId = parts[1].startsWith("/") ? 0 : currentDirectoryId;
+                    indexFCBV = findFileByPath(curId, parts[1]);
+                } else {
+                    long dataFCBV = fs.superBlock.getDataZoneStart();
+                    int blockFCBV = currentDirectory.getStartBlock();
+                    long offsetFCBV = dataFCBV + (blockFCBV * 512);
+                    for (int i = 0; i < currentDirectory.getSizeUsed(); i++){
+                        byte[] entryFCBV = fs.disk.read(offsetFCBV + (i * 24),  24);
+                        DirectoryEntry entry = DirectoryEntry.fromBytes(entryFCBV);
+                        if (entry.getName().equals(parts[1])) {
+                            indexFCBV = entry.getFcbId();
+                            break;
+                        }
+                    }
+                    // Si no se encontró, ver si es el directorio actual o el padre
+                    if (indexFCBV == -1) {
+                        if (parts[1].equals(currentDirectory.getName())) {
+                            indexFCBV = currentDirectoryId;
+                        } else if (currentDirectory.getParentId() != -1) {
+                            FCB parentFCBV = fs.getFCB(currentDirectory.getParentId());
+                            if (parts[1].equals(parentFCBV.getName())) {
+                                indexFCBV = currentDirectory.getParentId();
+                            }
+                        }
+                    }
                 }
                 if (indexFCBV == -1) {
                     out.println("Archivo no encontrado");
                     return 0;
-                } 
+                }
                 FCB fileFCBV = fs.getFCB(indexFCBV);
                 User userFileFcb = fs.getUser(fileFCBV.getOwnerId());
                 Group groupFCb = fs.getGroup(fileFCBV.getGroupId());
@@ -1388,6 +1702,8 @@ public class Terminal {
                     isOpen = "cerrado";                  
                 }
                 
+                long fcbPhyOffset = fs.superBlock.getFcbStart() + (indexFCBV * 63);
+                long dataPhyOffset = fs.superBlock.getDataZoneStart() + (fileFCBV.getStartBlock() * 512);
                 out.println("Nombre: " + fileFCBV.getName());
                 out.println("Padre: " + parentName);
                 if(fileFCBV.getType() == 1){
@@ -1398,6 +1714,8 @@ public class Terminal {
                     out.println("Bytes utilizados: " + fileFCBV.getSizeUsed());
                     out.println("Bloque inicial: " + fileFCBV.getStartBlock());
                     out.println("Cantidad de bloques" + fileFCBV.getBlockCount());
+                    out.println("Offset físico del FCB: " + fcbPhyOffset + " (bytes " + fcbPhyOffset + "-" + (fcbPhyOffset + 62) + ")");
+                    out.println("Offset físico de datos: " + dataPhyOffset + " (bytes " + dataPhyOffset + "-" + (dataPhyOffset + fileFCBV.getBlockCount() * 512 - 1) + ")");
                     out.println("Fecha de creación: " + formatDate(fileFCBV.getCreationDate()));
                     out.println("Fecha de modificacion: " + formatDate(fileFCBV.getModificationDate()));
                     out.println("Directorio padre: " + parentName);                 
@@ -1410,6 +1728,8 @@ public class Terminal {
                 out.println("Tamano utilizado: " + fileFCBV.getSizeUsed());
                 out.println("Bloque inicial: " + fileFCBV.getStartBlock());
                 out.println("Cantidad de bloques" + fileFCBV.getBlockCount());
+                out.println("Offset físico del FCB: " + fcbPhyOffset + " dec / " + String.format("0x%08X", fcbPhyOffset) + " hex");
+                out.println("Offset físico de datos: " + dataPhyOffset + " dec / " + String.format("0x%08X", dataPhyOffset) + " hex");
                 out.println("Fecha de creación: " + formatDate(fileFCBV.getCreationDate()));
                 out.println("Fecha de modificacion: " + formatDate(fileFCBV.getModificationDate()));                
                 out.println("El archivo se encuentra " + isOpen);
@@ -1419,13 +1739,42 @@ public class Terminal {
             case "infofs":
                 long totalBytesFS = fs.mbr.volumeSize;
                 long metaBytesFS = fs.superBlock.getDataZoneStart();
-                long dataUsedBytesFS = fs.bitmapBlocks.countUsedBlocks() * 512;
+                long totalBlocksFS = fs.superBlock.getTotalBlocks();
+                long usedBlocksFS = fs.bitmapBlocks.countUsedBlocks();
+                long freeBlocksFS = totalBlocksFS - usedBlocksFS;
+                long dataUsedBytesFS = usedBlocksFS * 512;
                 long usedBytesFS = metaBytesFS + dataUsedBytesFS;
                 long freeBytesFS = totalBytesFS - usedBytesFS;
+                long usedKB = Math.round(usedBytesFS / 1024.0);
+                long freeKB = Math.round(freeBytesFS / 1024.0);
                 out.println("Nombre del FileSystem: " + fs.mbr.fsFileName);
                 out.println("Tamaño: " + (totalBytesFS / (1024 * 1024)) + " Mb");
-                out.println("Espacio utilizado: " + (usedBytesFS / 1024) + " KB");
-                out.println("Disponible: " + (freeBytesFS / 1024) + " KB");
+                if (usedKB >= 1024) {
+                    out.println("Espacio utilizado: " + String.format("%.2f", usedKB / 1024.0) + " MB (" + usedKB + " KB)");
+                } else {
+                    out.println("Espacio utilizado: " + usedKB + " KB");
+                }
+                if (freeKB >= 1024) {
+                    out.println("Disponible: " + String.format("%.2f", freeKB / 1024.0) + " MB (" + freeKB + " KB)");
+                } else {
+                    out.println("Disponible: " + freeKB + " KB");
+                }
+                out.println("Bloques libres: " + freeBlocksFS);
+                break;
+
+            case "map":
+                int mapBlocks = (int) fs.superBlock.getTotalBlocks();
+                out.println("Mapa de bloques (" + mapBlocks + " totales):");
+                out.println("  [#] ocupado  [ ] libre");
+                StringBuilder mapLine = new StringBuilder();
+                for (int i = 0; i < mapBlocks; i++) {
+                    if (i % 80 == 0) {
+                        if (mapLine.length() > 0) out.println(mapLine);
+                        mapLine = new StringBuilder(String.format("%04d: ", i));
+                    }
+                    mapLine.append(fs.bitmapBlocks.isBusy(i) ? "[#]" : "[ ]");
+                }
+                if (mapLine.length() > 0) out.println(mapLine);
                 break;
                 
 
@@ -1437,21 +1786,23 @@ public class Terminal {
                 }
                 String fileName = parts[1];
 
-                // Vemos si el archivo esta en el directorial actual
-                long data = fs.superBlock.getDataZoneStart();
-                int blockDir = currentDirectory.getStartBlock();
-                long offset = data + (blockDir * 512);
-
                 int fcbIndex = -1;
-                for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
-                    byte[] entryData = fs.disk.read(offset + (i * 24), 24);
-                    DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
-                    if (entry.getName().equals(fileName)) {
-                        fcbIndex = entry.getFcbId();
-                        break;
+                if (fileName.contains("/")) {
+                    int curId = fileName.startsWith("/") ? 0 : currentDirectoryId;
+                    fcbIndex = findFileByPath(curId, fileName);
+                } else {
+                    long data = fs.superBlock.getDataZoneStart();
+                    int blockDir = currentDirectory.getStartBlock();
+                    long offset = data + (blockDir * 512);
+                    for (int i = 0; i < currentDirectory.getSizeUsed(); i++) {
+                        byte[] entryData = fs.disk.read(offset + (i * 24), 24);
+                        DirectoryEntry entry = DirectoryEntry.fromBytes(entryData);
+                        if (entry.getName().equals(fileName)) {
+                            fcbIndex = entry.getFcbId();
+                            break;
+                        }
                     }
                 }
-
                 if (fcbIndex == -1) {
                     out.println("Archivo no encontrado");
                     return 0;
@@ -1468,6 +1819,7 @@ public class Terminal {
                         out.println("El enlace apunta a un archivo inexistente");
                         return 0;
                     }
+                    fcbIndex = realId;
                     fileFCB = fs.getFCB(realId);
                 }
 
@@ -1497,6 +1849,9 @@ public class Terminal {
                     }
                 }
 
+                // Marcar archivo como abierto
+                fs.openFile(fcbIndex, fileFCB);
+
                 // Leemos disco
                 byte[] fileData = fs.readFileData(fileFCB);
                 String content3 = new String(fileData, 0, fileFCB.getSizeUsed());
@@ -1506,17 +1861,20 @@ public class Terminal {
                 String newContent= editor.openEditor();
 
                 if (!newContent.equals(content3)) {
-                    fs.writeFileData(fileFCB, fcbIndex, newContent.getBytes());
-                    out.println("Archivo guardado");
+                    if (fs.writeFileData(fileFCB, fcbIndex, newContent.getBytes())) {
+                        out.println("Archivo guardado");
+                    }
                 } else {
                     out.println("No se guardaron cambios");
                 }
+
+                // Marcar archivo como cerrado
+                fs.closeFile(fcbIndex);
                 break;
                 
-                
-            
-                
-            
+            default:
+                out.println("Comando no encontrado: " + command);
+                break;
         }
         
         

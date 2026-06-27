@@ -132,12 +132,11 @@ public class SuperBlock{
          long usersStart = buffer.getLong();
          long groupsStart = buffer.getLong();
          long fcbStart = buffer.getLong();     
-         long directoriesStart = buffer.getLong();
          long dataZoneStart = buffer.getLong();
          long rootReference = buffer.getLong();           
          
          return new SuperBlock(totalDiskSize, blockSize, totalBlocks, bitmapBlocksStart, bitmapOpenFilesStart,
-            usersStart, groupsStart, fcbStart,dataZoneStart, rootReference);
+            usersStart, groupsStart, fcbStart, dataZoneStart, rootReference);
          
         
     }       

@@ -13,6 +13,8 @@ import javax.swing.text.*;
 
 public class HackerTerminal extends JFrame {
 
+    private static java.util.concurrent.atomic.AtomicInteger terminalCount = new java.util.concurrent.atomic.AtomicInteger(0);
+
     private JTextArea outputArea;
     private AbstractDocument doc;
     private Terminal terminal;
@@ -20,12 +22,15 @@ public class HackerTerminal extends JFrame {
     private BlockingQueue<String> inputQueue;
     private int outputEnd;
     private ByteArrayOutputStream outputBuffer;
+    private StringBuilder passwordBuffer;
 
     public HackerTerminal(Terminal terminal) {
         this.terminal = terminal;
         this.inputQueue = new LinkedBlockingQueue<>();
         this.outputEnd = 0;
         this.outputBuffer = new ByteArrayOutputStream();
+        this.passwordBuffer = new StringBuilder();
+        terminalCount.incrementAndGet();
         terminal.setOut(new PrintStream(outputBuffer, true, StandardCharsets.UTF_8));
         terminal.setNewTerminalHandler(fs -> {
             SwingUtilities.invokeLater(() -> {
@@ -33,6 +38,19 @@ public class HackerTerminal extends JFrame {
                 nueva.setVisible(true);
             });
         });
+        terminal.setFlushHandler(() -> { flushOutput(); });
+        terminal.setClearHandler(() -> {
+            try {
+                SwingUtilities.invokeAndWait(() -> {
+                    outputEnd = 0;
+                    outputArea.setText("");
+                    outputBuffer.reset();
+                });
+            } catch (Exception ex) {
+                System.err.println("clear error: " + ex);
+            }
+        });
+        terminal.setExitHandler(() -> { dispose(); });
         initUI();
         startTerminal();
         addWindowListener(new WindowAdapter() {
@@ -40,12 +58,18 @@ public class HackerTerminal extends JFrame {
             public void windowOpened(WindowEvent e) {
                 outputArea.requestFocusInWindow();
             }
+            @Override
+            public void windowClosed(WindowEvent e) {
+                if (terminalCount.decrementAndGet() == 0) {
+                    System.exit(0);
+                }
+            }
         });
     }
 
     private void initUI() {
         setTitle("POLAR File System — Terminal");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setSize(960, 640);
         setLocationRelativeTo(null);
 
@@ -65,17 +89,40 @@ public class HackerTerminal extends JFrame {
             public void keyPressed(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_ENTER) {
                     e.consume();
-                    String line = outputArea.getText().substring(outputEnd).trim();
-                    outputEnd = doc.getLength();
-                    SwingUtilities.invokeLater(() -> {
-                        outputArea.append("\n");
-                        outputArea.setCaretPosition(doc.getLength());
-                    });
-                    inputQueue.offer(line);
+                    if (terminal.passwordMode) {
+                        String pwd = passwordBuffer.toString();
+                        passwordBuffer.setLength(0);
+                        try {
+                            doc.remove(outputEnd, doc.getLength() - outputEnd);
+                        } catch (BadLocationException ex) { }
+                        outputEnd = doc.getLength();
+                        SwingUtilities.invokeLater(() -> {
+                            outputArea.append("\n");
+                            outputArea.setCaretPosition(doc.getLength());
+                        });
+                        inputQueue.offer(pwd);
+                    } else {
+                        String line = outputArea.getText().substring(outputEnd).trim();
+                        outputEnd = doc.getLength();
+                        SwingUtilities.invokeLater(() -> {
+                            outputArea.append("\n");
+                            outputArea.setCaretPosition(doc.getLength());
+                        });
+                        inputQueue.offer(line);
+                    }
                 } else if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
-                    if (outputArea.getCaretPosition() <= outputEnd) {
+                    if (terminal.passwordMode && passwordBuffer.length() > 0) {
+                        e.consume();
+                        passwordBuffer.setLength(passwordBuffer.length() - 1);
+                        try {
+                            doc.remove(doc.getLength() - 1, 1);
+                        } catch (BadLocationException ex) { }
+                    } else if (outputArea.getCaretPosition() <= outputEnd) {
                         e.consume();
                     }
+                } else if (e.getKeyCode() == KeyEvent.VK_SPACE && terminal.lessMode) {
+                    e.consume();
+                    inputQueue.offer(" ");
                 } else if (e.getKeyCode() == KeyEvent.VK_LEFT || e.getKeyCode() == KeyEvent.VK_UP
                         || e.getKeyCode() == KeyEvent.VK_HOME) {
                     if (outputArea.getCaretPosition() <= outputEnd) {
@@ -100,7 +147,14 @@ public class HackerTerminal extends JFrame {
         public void insertString(FilterBypass fb, int offset, String text, AttributeSet attr)
                 throws BadLocationException {
             if (offset >= outputEnd) {
-                super.insertString(fb, offset, text, attr);
+                if (terminal.passwordMode && text != null) {
+                    for (int i = 0; i < text.length(); i++) {
+                        passwordBuffer.append(text.charAt(i));
+                    }
+                    super.insertString(fb, offset, "*".repeat(text.length()), attr);
+                } else {
+                    super.insertString(fb, offset, text, attr);
+                }
             }
         }
 
@@ -115,7 +169,18 @@ public class HackerTerminal extends JFrame {
         public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attr)
                 throws BadLocationException {
             if (offset >= outputEnd) {
-                super.replace(fb, offset, length, text, attr);
+                if (terminal.passwordMode && text != null) {
+                    for (int i = 0; i < length && passwordBuffer.length() > 0; i++) {
+                        passwordBuffer.setLength(passwordBuffer.length() - 1);
+                    }
+                    
+                    for (int i = 0; i < text.length(); i++) {
+                        passwordBuffer.append(text.charAt(i));
+                    }
+                    super.replace(fb, offset, length, "*".repeat(text.length()), attr);
+                } else {
+                    super.replace(fb, offset, length, text, attr);
+                }
             }
         }
     }
@@ -130,9 +195,12 @@ public class HackerTerminal extends JFrame {
         String text = new String(pending, StandardCharsets.UTF_8);
         try {
             SwingUtilities.invokeAndWait(() -> {
+                boolean wasPwdMode = terminal.passwordMode;
+                terminal.passwordMode = false;
                 outputArea.append(text);
                 outputEnd = doc.getLength();
                 outputArea.setCaretPosition(outputEnd);
+                terminal.passwordMode = wasPwdMode;
             });
         } catch (Exception ex) {
             System.err.println("flushOutput error: " + ex);
