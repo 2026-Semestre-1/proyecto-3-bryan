@@ -524,8 +524,9 @@ public class Terminal {
                             byte[] dataEntry = fs.disk.read(offsetData + (p * 24), 24);
                             DirectoryEntry var = DirectoryEntry.fromBytes(dataEntry);
                             if( var.getName().equals(directoryNames)){
-                                out.println("El directorio ya existe actualmente");
-                                return 0;
+                                out.println("El directorio '" + directoryNames + "' ya existe, saltando...");
+                                cont++;
+                                continue;
                             } 
                         }
 
@@ -547,11 +548,6 @@ public class Terminal {
                                 fs.disk.write(posDisk, direct2.toBytes());
                                 currentDirectory.setSizeUsed(currentDirectory.getSizeUsed()+1);
                                 fs.writeFCB(currentDirectory, parentID2);  
-                                if (cont == (parts.length-1)){
-                                    out.println("soy cont: " + cont);
-                                    out.println("El directorio fue creado: " + directoryNames);
-                                    return 0;
-                                }                                    
                                 cont++;                            
                                 out.println("El directorio fue creado: " + directoryNames);
 
@@ -570,8 +566,7 @@ public class Terminal {
 
                         }                        
                     }
-                    out.println("No se pudieron crear los directorios");
-                    return 0;
+                    break;
                 }
                 
                 
