@@ -5,6 +5,10 @@
 package FS.terminal;
 import FS.structures.*;
 import FS.principal.*;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Comparator;
+
 import java.io.IOException;
 import java.io.PrintStream;
 import java.text.SimpleDateFormat;
@@ -1872,6 +1876,21 @@ public class Terminal {
                 fs.closeFile(fcbIndex);
                 break;
                 
+            case "diskview":
+                try {
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        new DiskViewer(fs).setVisible(true);
+                    });
+                } catch (Exception e) {
+                    out.println("Error al abrir visor de disco");
+                }
+                break;
+                
+                
+            case "desfragmentacion":
+                defragmentation();
+                break;
+                
             default:
                 out.println("Comando no encontrado: " + command);
                 break;
@@ -2164,7 +2183,54 @@ public class Terminal {
             }
         }
         return;
-    }    
+    }   
+    
+    private void defragmentation(){
+        List<int[]> degList = new ArrayList<>();
+        for(int i = 0; i < 100; i++){
+            FCB fcbDG = fs.getFCB(i);
+            if (fcbDG.getName().isEmpty()){
+                continue;
+            }            
+            if (fcbDG.getBlockCount() <= 0){
+                continue;
+            }    
+            // agregamos elemento porque este si tiene datos y lo ordenamos por bloque
+            // de lelgada
+            degList.add(new int[]{i, fcbDG.getStartBlock(), fcbDG.getBlockCount()});
+            
+        }
+        degList.sort(Comparator.comparingInt(ele -> ele[1]));        
+        // A nivel de resumen lo que hacemos es a partir de los ordenados ir comparando
+        // su llegada para ver si estan en la posicion correta y vamos aumentando hasta el
+        // final de los bloques totales que utiliza cada fcb así constantemente y luego
+        // escribimos en disco la info que tenia anteriormente con su fcb e igual aumentamos
+        // posiciones y  por ultimo actualizamos el bitmap de datos para que se muestre
+        // correctamente
+        int nextPosFree = 0;
+        for(int x = 0; x < degList.size(); x++){
+            byte[] data = fs.readFileData(fs.getFCB(degList.get(x)[0]));
+            FCB fcb = fs.getFCB(degList.get(x)[0]);
+            int blockCount2 = degList.get(x)[2];
+            int oldStart =  degList.get(x)[1];
+            if(oldStart == nextPosFree){
+                nextPosFree += blockCount2;
+                continue;
+            }
+            
+            long newPos = fs.superBlock.getDataZoneStart() + (nextPosFree * 512);
+            fs.disk.write(newPos, data);
+            fcb.setStartBlock(nextPosFree);
+            fs.writeFCB(fcb, degList.get(x)[0]);
+            
+            nextPosFree += blockCount2;
+            
+        }
+        Bitmap newBmp = new Bitmap((int) fs.superBlock.getTotalBlocks());
+        for (int i = 0; i < nextPosFree; i++) newBmp.markBusy(i);
+        fs.bitmapBlocks = newBmp;
+        fs.disk.write(fs.superBlock.getBitmapBlocksStart(), newBmp.toBytes());        
+    }
     
     
     
