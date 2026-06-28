@@ -27,7 +27,8 @@ public class FileSystem {
             Disk d = new Disk(fileName);
             byte[] mbrData = d.read(0, 200);
             Mbr loadedMbr = Mbr.fromBytesToLong(mbrData);
-            byte[] sbData = d.read(200, 80);
+            long sbOffset = (loadedMbr.volumeStart == 0) ? 200 : loadedMbr.volumeStart;
+            byte[] sbData = d.read(sbOffset, 80);
             SuperBlock loadedSb = SuperBlock.fromBytes(sbData);
             long bitmapBlocksSize = (long) Math.ceil(loadedSb.getTotalBlocks() / 8.0);
             byte[] bmpData = d.read(loadedSb.getBitmapBlocksStart(), (int) bitmapBlocksSize);
@@ -77,7 +78,7 @@ public class FileSystem {
             sizeBytes = file * 1024 * 1024; // default mb
         }
         
-        this.mbr = new Mbr("miFS", sizeBytes, 0);
+        this.mbr = new Mbr("miFS", sizeBytes, 200);
         long blockSize = 512; // Lo pongo así por si lo cambio
         SuperBlock superBlock = new SuperBlock(sizeBytes, blockSize);
 
